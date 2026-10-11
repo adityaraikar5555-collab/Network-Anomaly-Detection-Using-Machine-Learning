@@ -1,5 +1,11 @@
 # CICIDS-2017 ML Inference Integration & Completion Report
 
+**Repository:** `adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning`
+**Branch:** `fix/live-ml-inference-clean` (based on `main`, commit `318131b`)
+**Related docs:** `LIVE_ML_INFERENCE_UPDATES.md`, `REQUIREMENTS_COMPLIANCE.md`
+
+---
+
 ## 1. Overview & Architecture
 
 This document summarizes the reusable Machine Learning inference layer implemented for the **CICIDS-2017 Random Forest Model**. It provides the integration contract for the backend/FastAPI service and risk scoring engine.
@@ -278,23 +284,27 @@ confidence mapping, and end-to-end `extractor -> model` inference.
 
 **Verified (executed on this branch):**
 
-- Exact 78 feature names and order match `model.feature_names_in_`.
-- `Flow Duration` / IAT / Active-Idle emitted in microseconds.
+- The 78 feature names and their order match `model.feature_names_in_` exactly
+  (schema parity — not a claim about per-feature calculation parity).
+- `Flow Duration` / IAT / Active-Idle emitted in microseconds; rates per second.
 - No `NaN`/`Inf` values leave the extractor.
 - `predict_flow` returns a label in `{BENIGN, ATTACK}` and a finite confidence
   in `[0, 1]`.
 - The existing `models/cicids_anomaly_model.pkl` and
-  `models/cicids_label_encoder.pkl` are used unchanged.
+  `models/cicids_label_encoder.pkl` are used unchanged (identical Git blob hashes
+  on `main` and on this branch).
 
 **Not verified (requires artifacts/data not present in this repository):**
 
 - **Real-PCAP end-to-end inference.** This repository contains no PCAP parser /
-  capture adapter, and no PCAP or CICIDS dataset is committed. Only synthetic
-  in-memory flows were used. To test on real traffic, provide a PCAP plus an
-  adapter that yields `PacketRecord`s (e.g. via `scapy`/`dpkt`/`pyshark`) and
-  run the snippet in section 6.3.
+  capture adapter, no committed PCAP or CICIDS dataset, and no packet-parsing
+  library (`scapy`/`dpkt`/`pyshark`) is installed. Only synthetic in-memory flows
+  were used. To test on real traffic, provide a PCAP plus an adapter that yields
+  `PacketRecord`s and run the snippet in section 6.3.
 - **Attack detection on real, labeled traffic.** No labeled PCAP is available,
   so per-class accuracy on live traffic is unmeasured.
+- **Bit-for-bit calculation parity with CICFlowMeter.** Not established for the
+  approximated features listed in section 10.
 
 ---
 
@@ -307,9 +317,14 @@ fields below, but a few calculations are documented approximations and are
 - **Bulk features** (`*Avg Bytes/Bulk`, `*Avg Packets/Bulk`, `*Avg Bulk Rate`)
   use a fixed 1-second inter-packet threshold to group a bulk; CICFlowMeter uses
   an internal packet-count/timeout heuristic.
-- **Active/Idle** uses a 1-second active threshold.
+- **Active/Idle** uses a 1-second active threshold; period boundary semantics may
+  differ from CICFlowMeter.
 - **`min_seg_size_forward`** uses the minimum forward payload size rather than
   the initial TCP segment size only.
+- **Standard-deviation features** (`*Std`) use the population formula (÷ N).
+- **`Init_Win_bytes_forward` / `Init_Win_bytes_backward`** use the first packet in
+  the respective direction with a non-zero window, rather than strictly the
+  initial window advertisement.
 - **`Fwd Header Length.1`** intentionally duplicates `Fwd Header Length`, matching
   the duplicated column present in the training CSV.
 - **Bidirectional flow timing** relies on capture-observed timestamps; out-of-order

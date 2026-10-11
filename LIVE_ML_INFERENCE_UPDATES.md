@@ -1,7 +1,11 @@
 # Live CICIDS-2017 ML Inference — Update Summary
 
-**Branch:** `fix/live-ml-inference`
-**Commit:** `5ea0d6e` — "Validate live CICIDS 78-feature ML inference"
+**Repository:** `adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning` (remote `origin`)
+**Pull-request head branch:** `fix/live-ml-inference-clean`
+**Pull-request base branch:** `main`
+**Head commit:** `318131b0d929cea9fa72b476a6b3bf2a38861570`
+**Base commit:** `ec3300e5bca18016cf814f0db465296bb65c1a3c`
+**Divergence:** 1 commit ahead, 0 behind `main` (linear history, common ancestor = `main`)
 **Date:** 2026-10-11
 
 ---
@@ -14,41 +18,54 @@ Make the live pipeline
 Real traffic -> 78-feature flow extractor -> existing cicids_anomaly_model.pkl -> BENIGN/ATTACK + confidence
 ```
 
-produce **exactly** the same 78 features (names, order, units, meaning,
-preprocessing) that the existing Random Forest was trained on — without
-retraining or replacing the model.
+emit the same **78 features (names, order, count, units, label mapping)** that the
+existing Random Forest was trained on — without retraining or replacing the model.
 
 ---
 
-## 2. Remote / Repository Note (important)
+## 2. Repository / history provenance (important)
 
-- The repository URL provided (`origin` = `adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning`)
-  does **not** contain commit `0737fc3` and has **no `src/flow_extractor.py`**.
-- Commit `0737fc3` and `src/flow_extractor.py` live on the other remote,
-  `collab` = `glenjr009/network-traffic-anomaly-detector`, which is also what the
-  pre-existing `fix/live-ml-inference` branch tracks.
-- The two remotes have **unrelated histories** (no merge-base). The complete
-  pipeline (extractor + schema + models) exists on `collab/main`, so the work was
-  done on the existing branch based on it.
-- Consequence: a PR against `origin/main` is not possible (no common ancestor);
-  a valid PR target is `collab/main`.
+The final implementation lives in the user's repository and is based on its own
+`main`. The original extractor prototype came from a collaborator repository:
+
+- **`origin`** = `adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning`
+  (the PR target). Its `main` contains the trained model, label encoder, training
+  scripts and the pre-existing `src/prediction.py`, but originally had **no**
+  `src/flow_extractor.py`.
+- **`collab`** = `glenjr009/network-traffic-anomaly-detector` (a collaborator /
+  upstream repository). The original `src/flow_extractor.py` prototype was
+  authored here in commit `0737fc3` ("Add CICIDS 78-feature flow extraction
+  prototype", author `cyb3rPh03n1x`). This repository has **unrelated history**
+  from `origin` (no common ancestor).
+- The pre-existing `fix/live-ml-inference` branch was built on top of the
+  collaborator history, so it could not be merged into `origin/main`.
+
+**Resolution:** the refined tree was rebased onto `origin/main` as a single commit,
+producing `fix/live-ml-inference-clean` (`318131b`). The rebase is what makes the
+PR against `origin/main` possible. The extractor transfer was verified by diffing
+the clean-branch `src/flow_extractor.py` against the original prototype: the only
+differences are the intended, documented fixes (+110 / −13 lines); everything else
+in the branch comes from `origin/main` unchanged.
 
 ---
 
-## 3. What Was Validated (before changes)
+## 3. What Was Validated (training schema, before changes)
 
-The exact training schema was derived from the repository, **not assumed**:
+The exact training schema was derived from the model artifact, **not assumed**:
 
 - `models/cicids_anomaly_model.pkl` →
   `RandomForestClassifier`, `n_features_in_ = 78`,
-  `feature_names_in_` = `Destination Port` … `Idle Min`.
-- Training pipeline (`src/cicids_preprocessing.py`, `notebooks/cicids2017_model_train.ipynb`):
-  - `X = df.drop("Label", axis=1)` → feature order = CICIDS CSV column order.
+  `feature_names_in_` = `Destination Port` … `Idle Min`
+  (100 estimators, max depth 20 — matching `src/cicids_train_model.py`).
+- Training pipeline (`src/cicids_preprocessing.py`, `src/cicids_train_model.py`,
+  `notebooks/cicids2017_model_train.ipynb`):
+  - `X = df.drop("Label", axis=1)` → feature order = (stripped) CICIDS CSV column order.
   - Labels binarised to `BENIGN`/`ATTACK`; `LabelEncoder.classes_ = ['ATTACK','BENIGN']`
     → **`0 = ATTACK`, `1 = BENIGN`**.
-  - **No feature scaling.** Only whitespace stripping, ±Inf→NaN, NaN-row drop.
+  - **No feature scaling.** Only whitespace stripping, ±Inf→NaN, NaN-row drop,
+    duplicate-row drop.
 
-### Mismatches found in `src/flow_extractor.py`
+### Mismatches found in the original `src/flow_extractor.py`
 
 | # | Type | Detail |
 |---|------|--------|
@@ -66,7 +83,7 @@ Single canonical definition of `CICIDS_FEATURE_NAMES` (78, training order) and
 `CICIDS_FEATURE_COUNT`, imported by both the extractor and the inference layer so
 they can never drift apart.
 
-### `src/flow_extractor.py` **(modified)**
+### `src/flow_extractor.py` **(new file relative to `origin/main`; derived from the collaborator prototype)**
 - **Added the missing `Fwd PSH Flags`** to `tcp_flag_and_rate_features()` → now 78 features.
 - **Canonical assembly:** added
   - `NetworkFlow.extract_features()` — merges all chunks, orders by
@@ -88,14 +105,21 @@ they can never drift apart.
 19 tests using synthetic in-memory flows (no PCAP/dataset dependency).
 
 ### `tests/test_prediction.py` **(modified)**
-Added deterministic label-decode + confidence tests using stubbed models
-(`0 → ATTACK`, `1 → BENIGN`).
+Added 2 deterministic label-decode + confidence tests using stubbed models
+(`0 → ATTACK`, `1 → BENIGN`); the 11 pre-existing tests are unchanged.
 
-### `INFERENCE_INTEGRATION.md` **(new)**
-Documents the canonical schema, units, pipeline, prediction output, tests and limitations.
+### `INFERENCE_INTEGRATION.md` **(modified)**
+Extended the existing integration doc with the canonical schema, units, live
+pipeline, `predict_flow`, tests and limitations.
+
+### `LIVE_ML_INFERENCE_UPDATES.md`, `REQUIREMENTS_COMPLIANCE.md` **(new)**
+Validation summaries. (These documents describe an earlier state of the branch
+and have since been corrected to the final `fix/live-ml-inference-clean` state.)
 
 > The model files `models/cicids_anomaly_model.pkl` and
-> `models/cicids_label_encoder.pkl` were **not** modified or retrained.
+> `models/cicids_label_encoder.pkl` were **not** modified or retrained. Their Git
+> blob hashes are identical on `main`, on this branch, and in the working tree
+> (see section 8).
 
 ---
 
@@ -104,32 +128,34 @@ Documents the canonical schema, units, pipeline, prediction output, tests and li
 | Item | Result |
 |------|--------|
 | Feature count | **78** (was 77) |
-| Feature names | **MATCH** |
+| Feature names | **MATCH** (exact) |
 | Feature order | **MATCH** (asserted vs shared schema *and* `model.feature_names_in_`) |
 | Units | **FIXED** — time features now microseconds; rates per-second |
-| Calculation logic | MATCH (bulk features are a documented approximation) |
+| Per-feature calculation logic | **Approximate** for the documented features (bulk, Active/Idle boundaries, `min_seg_size_forward`, population std, initial-window selection); **not claimed bit-for-bit identical to CICFlowMeter** |
 | Model inference | **PASS** — accepts extracted vector/dict |
 | Confidence | **PASS** — ∈ [0.0, 1.0] |
 | Prediction labels | ∈ {BENIGN, ATTACK}; both labels decodable |
 | Test suite | **PASS — 32 tests** |
 
-Example (real model, synthetic benign-like flow):
+Example (real model, the synthetic flow built by `tests/test_flow_extractor.py::build_sample_flow`):
 
 ```json
-{"prediction": "BENIGN", "confidence": 0.9519, "model": "cicids_random_forest"}
+{"prediction": "BENIGN", "confidence": 0.9356, "model": "cicids_random_forest"}
 ```
 
 ---
 
 ## 6. Tests Performed
 
+Executed on the final working tree of `fix/live-ml-inference-clean`:
+
 ```bash
-python -m unittest discover -s tests
+python -m unittest discover -s tests -v
 # Ran 32 tests ... OK
 ```
 
-- Existing `tests/test_prediction.py` (11 tests) still pass unchanged.
-- New `tests/test_flow_extractor.py` (19 tests): exactly 78 features; names match;
+- `tests/test_prediction.py` (13 tests — 11 pre-existing + 2 new) pass.
+- `tests/test_flow_extractor.py` (19 tests): exactly 78 features; names match;
   order matches schema **and** model artifact; all numeric; no NaN/Inf; model
   accepts vector/dict; prediction ∈ {BENIGN, ATTACK}; confidence ∈ [0,1];
   deterministic; `Fwd PSH Flags` present/correct; microsecond duration; TCP flag
@@ -140,29 +166,43 @@ python -m unittest discover -s tests
 
 ## 7. Known Limitations
 
-- **No real-PCAP validation was performed.** The repo has no PCAP/`libpcap`
-  parser or capture layer that creates `PacketRecord`s, and no CICIDS/PCAP data
-  is committed. Only extractor → model was validated (synthetic flows + the real
-  trained model). A capture adapter (`scapy`/`dpkt`/`pyshark`) is still needed to
-  feed live traffic.
+- **No real-PCAP validation was performed.** The repository contains no
+  PCAP/`libpcap` parser or capture layer that creates `PacketRecord`s, no PCAP is
+  committed, and no packet-parsing library (`scapy`/`dpkt`/`pyshark`) is
+  installed. Only extractor → model was validated (synthetic flows + the real
+  trained model). A capture adapter is still needed to feed live traffic.
 - Consequently, BENIGN/ATTACK accuracy on real traffic was **not** measured.
   Synthetic attack-like flows were classified BENIGN because their values do not
   match the CICIDS attack distributions — reported honestly, not asserted as a test.
 - `*.Avg *Bulk*` features use a 1-second inter-packet bulk threshold
-  (approximation of CICFlowMeter bulk; exact training implementation not in repo).
+  (approximation of CICFlowMeter bulk; the exact training implementation is not in
+  the repository).
 - Standard-deviation features use the population formula (÷ N).
+- Active/Idle period boundaries use a 1-second threshold and may differ from
+  CICFlowMeter's exact boundary semantics.
 
 ---
 
 ## 8. Files Changed at a Glance
 
+Relative to `origin/main` (`ec3300e`) → `318131b`:
+
 ```
-INFERENCE_INTEGRATION.md      (new, 164 lines)
-src/cicids_features.py        (new, 102 lines)
-src/flow_extractor.py         (modified, +123)
-src/prediction.py             (modified, net -94 / +..)
-tests/test_flow_extractor.py  (new, 238 lines)
-tests/test_prediction.py      (modified, +35)
+ INFERENCE_INTEGRATION.md     | 130 +,   4 -   (modified)
+ LIVE_ML_INFERENCE_UPDATES.md | 182 +        (new)
+ REQUIREMENTS_COMPLIANCE.md   | 108 +        (new)
+ src/cicids_features.py       | 102 +        (new)
+ src/flow_extractor.py        | 1406 +       (new to main; derived from collaborator prototype)
+ src/prediction.py            |  51 +,  81 -  (modified)
+ tests/test_flow_extractor.py | 238 +        (new)
+ tests/test_prediction.py     |  35 +        (modified)
+```
+
+**Model preservation evidence** (Git blob hashes, identical everywhere):
+
+```
+models/cicids_anomaly_model.pkl   31693875e0fcc80437659ff74c86722d94178485
+models/cicids_label_encoder.pkl   cbd48f4da13bbe908679b0a8c853adc8ff75f75c
 ```
 
 No datasets, PCAPs, generated captures, caches, or `.idea/` were committed.
@@ -171,12 +211,15 @@ No datasets, PCAPs, generated captures, caches, or `.idea/` were committed.
 
 ## 9. Pull Request
 
-`gh` is not installed; the branch was pushed to both remotes (never `main`).
-Open the PR manually:
+The branch `fix/live-ml-inference-clean` is based on `origin/main`, so a PR is
+now possible. It was pushed to `origin` (and to `collab`, never to a `main`
+branch).
 
-- Shared repo (history matches, recommended):
-  `https://github.com/glenjr009/network-traffic-anomaly-detector/pull/new/fix/live-ml-inference`
-- User repo:
-  `https://github.com/adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning/pull/new/fix/live-ml-inference`
+- **Base repository/branch:** `adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning` : `main`
+- **Head branch:** `fix/live-ml-inference-clean`
+- **Compare URL:**
+  `https://github.com/adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning/compare/main...fix/live-ml-inference-clean`
+- **Open-PR URL:**
+  `https://github.com/adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning/pull/new/fix/live-ml-inference-clean`
 
 **PR title:** `Fix live CICIDS ML inference feature compatibility`
