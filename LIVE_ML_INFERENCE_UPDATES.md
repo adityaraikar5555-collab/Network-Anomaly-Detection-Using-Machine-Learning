@@ -135,11 +135,12 @@ and have since been corrected to the final `fix/live-ml-inference-clean` state.)
 | Feature names | **MATCH** (exact) |
 | Feature order | **MATCH** (asserted vs shared schema *and* `model.feature_names_in_`) |
 | Units | **FIXED** — time features now microseconds; rates per-second |
-| Per-feature calculation logic | **Approximate** for the documented features (bulk, Active/Idle boundaries, `min_seg_size_forward`, population std, initial-window selection); **not claimed bit-for-bit identical to CICFlowMeter** |
+| Per-feature calculation logic | **Improved** — payload-based `act_data_pkt_fwd`/bulk, CICFlowMeter `ACTIVE_TIMEOUT=5s`, IPv4+transport header lengths; remaining approximations documented (bulk state machine, Active/Idle boundaries, `min_seg_size_forward`, population std, initial-window selection); **not claimed bit-for-bit identical to CICFlowMeter** |
+| PCAP ingestion | **ADDED** — `src/pcap_reader.py` + `scripts/validate_pcap.py` (scapy, optional) |
 | Model inference | **PASS** — accepts extracted vector/dict |
 | Confidence | **PASS** — ∈ [0.0, 1.0] |
 | Prediction labels | ∈ {BENIGN, ATTACK}; both labels decodable |
-| Test suite | **PASS — 32 tests** |
+| Test suite | **PASS — 52 tests** with `scapy`; PCAP tests are skipped without it |
 
 Example (real model, the synthetic flow built by `tests/test_flow_extractor.py::build_sample_flow`):
 
@@ -155,51 +156,70 @@ Executed on the final working tree of `fix/live-ml-inference-clean`:
 
 ```bash
 python -m unittest discover -s tests -v
-# Ran 32 tests ... OK
+# Ran 52 tests ... OK   (with scapy installed)
 ```
 
 - `tests/test_prediction.py` (13 tests — 11 pre-existing + 2 new) pass.
-- `tests/test_flow_extractor.py` (19 tests): exactly 78 features; names match;
+- `tests/test_flow_extractor.py` (25 tests): exactly 78 features; names match;
   order matches schema **and** model artifact; all numeric; no NaN/Inf; model
   accepts vector/dict; prediction ∈ {BENIGN, ATTACK}; confidence ∈ [0,1];
   deterministic; `Fwd PSH Flags` present/correct; microsecond duration; TCP flag
-  counts; single-packet and empty-flow edge cases; multiple flows; `predict_flow`.
+  counts; payload-based `act_data_pkt_fwd`/`min_seg_size_forward`/bulk;
+  Active/Idle `ACTIVE_TIMEOUT`; single-packet and empty-flow edge cases; multiple
+  flows; `predict_flow`.
+- `tests/test_pcap_reader.py` (14 tests): PCAP parsing, TCP/UDP handling, ICMP
+  skipping, bidirectional grouping, 78-key schema, `validate_capture` report,
+  JSON serialisability, empty/garbage/missing-file errors, and deterministic
+  sample-capture generation. Skipped when `scapy` is not installed.
 - Stub-model tests verify `0 → ATTACK` and `1 → BENIGN` decoding + confidence.
 
 ---
 
 ## 7. Known Limitations
 
-- **No real-PCAP validation was performed.** The repository contains no
-  PCAP/`libpcap` parser or capture layer that creates `PacketRecord`s, no PCAP is
-  committed, and no packet-parsing library (`scapy`/`dpkt`/`pyshark`) is
-  installed. Only extractor → model was validated (synthetic flows + the real
-  trained model). A capture adapter is still needed to feed live traffic.
+- **No real-PCAP validation was performed.** A PCAP ingestion layer now exists
+  ([`src/pcap_reader.py`](src/pcap_reader.py), scapy-based, optional) and is
+  exercised end-to-end with a **synthetic** capture
+  (`src/sample_capture.py`), but no genuine network capture or labeled
+  CICIDS-2017 PCAP/dataset is available (outbound access to capture hosts is
+  blocked in this environment) and none is committed. The synthetic capture is
+  explicitly **not** CICIDS-2017 traffic.
 - Consequently, BENIGN/ATTACK accuracy on real traffic was **not** measured.
   Synthetic attack-like flows were classified BENIGN because their values do not
   match the CICIDS attack distributions — reported honestly, not asserted as a test.
-- `*.Avg *Bulk*` features use a 1-second inter-packet bulk threshold
-  (approximation of CICFlowMeter bulk; the exact training implementation is not in
-  the repository).
+- `*.Avg *Bulk*` features use application-layer payload bytes and require at
+  least `BULK_BOUND = 4` payload packets within a `CLUMP_TIMEOUT = 1 s` gap. This
+  is closer to CICFlowMeter but still an approximation of its incremental bulk
+  state machine.
 - Standard-deviation features use the population formula (÷ N).
-- Active/Idle period boundaries use a 1-second threshold and may differ from
-  CICFlowMeter's exact boundary semantics.
+- Active/Idle period boundaries use `ACTIVE_TIMEOUT = 5 s` and may still differ
+  from CICFlowMeter's exact boundary semantics.
+- Byte-for-byte parity with CICFlowMeter is **not** claimed. The only offline
+  reference (`cicflowmeter` Python port) has documented defects
+  (first-packet duplication, IPv4-only header lengths, `CWE` aliased to `URG`,
+  empty Active/Idle); see `INFERENCE_INTEGRATION.md` §10.
 
 ---
 
 ## 8. Files Changed at a Glance
 
-Relative to `origin/main` (`ec3300e`) → `318131b`:
+Relative to `origin/main` (`ec3300e`):
 
 ```
- INFERENCE_INTEGRATION.md     | 130 +,   4 -   (modified)
- LIVE_ML_INFERENCE_UPDATES.md | 182 +        (new)
- REQUIREMENTS_COMPLIANCE.md   | 108 +        (new)
- src/cicids_features.py       | 102 +        (new)
- src/flow_extractor.py        | 1406 +       (new to main; derived from collaborator prototype)
- src/prediction.py            |  51 +,  81 -  (modified)
- tests/test_flow_extractor.py | 238 +        (new)
- tests/test_prediction.py     |  35 +        (modified)
+ INFERENCE_INTEGRATION.md      | modified  (PCAP tooling, verification, parity notes)
+ LIVE_ML_INFERENCE_UPDATES.md  | new
+ REQUIREMENTS_COMPLIANCE.md    | new
+ src/cicids_features.py        | new
+ src/flow_extractor.py         | new to main (derived from collaborator prototype)
+ src/pcap_reader.py            | new       (PCAP -> PacketRecord + validate_capture)
+ src/sample_capture.py         | new       (deterministic synthetic capture generator)
+ src/prediction.py             | modified
+ scripts/validate_pcap.py      | new       (PCAP -> features -> model CLI)
+ scripts/compare_cicflowmeter.py | new     (parity diagnostic vs cicflowmeter port)
+ tests/test_flow_extractor.py  | new
+ tests/test_pcap_reader.py     | new
+ tests/test_prediction.py      | modified
+ requirements.txt              | modified  (scapy noted as optional)
 ```
 
 **Model preservation evidence** (Git blob hashes, identical everywhere):

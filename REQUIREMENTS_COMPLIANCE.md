@@ -17,7 +17,7 @@ existing `models/cicids_anomaly_model.pkl` the same 78 features it was trained o
 | Area | Result |
 |------|--------|
 | Extractor → model feature compatibility | **MET** (proven via code + tests) |
-| Real-PCAP end-to-end testing | **NOT MET** (no capture parser / no PCAP in repo) |
+| Real-PCAP end-to-end testing | **PARTIAL** — PCAP parser + CLI added and validated end-to-end on a *synthetic* capture; no genuine labeled PCAP available (offline) |
 | Pull request creation | **READY** (clean branch based on `origin/main`; PR to be opened manually) |
 
 Core requirement is satisfied: `src/flow_extractor.py` emits **exactly the 78
@@ -36,8 +36,8 @@ feature *calculations* are approximate where documented (see section 5).
 | 3. Validate all 78 features | MET | Full per-feature review. Found `Fwd PSH Flags` missing (output was **77**), and time-unit mismatch (seconds vs microseconds). |
 | 4. Fix the extractor | MET | 78 features, deterministic canonical order, explicit schema, microseconds, non-finite → 0.0, assembly API added. |
 | 5. Integrate with existing model | MET | `predict_flow(flow)` added; `.pkl` artifacts untouched (identical Git blob hashes). |
-| 6. Test with real PCAP | NOT MET | Repository contains **no PCAP parser / capture layer** and no PCAP/CICIDS data; no packet-parsing library installed. Not faked. |
-| 7. Add/update tests | MET | 32 tests pass (19 new in `tests/test_flow_extractor.py`, 2 new in `tests/test_prediction.py`). |
+| 6. Test with real PCAP | PARTIAL | Added `src/pcap_reader.py` (scapy, optional) + `scripts/validate_pcap.py`; the full `PCAP → features → model` path is tested end-to-end on a deterministic **synthetic** capture. No genuine/labeled PCAP could be obtained (offline environment) and none is committed. |
+| 7. Add/update tests | MET | 52 tests pass (25 in `tests/test_flow_extractor.py`, 14 in `tests/test_pcap_reader.py` [skipped without scapy], 13 in `tests/test_prediction.py`). |
 | 8. Document the validation | MET | `INFERENCE_INTEGRATION.md`, `LIVE_ML_INFERENCE_UPDATES.md`, `REQUIREMENTS_COMPLIANCE.md`. |
 | 9. Quality check | MET | `compileall` OK; no NaN/Inf; correct label decode; diff reviewed; no datasets committed. |
 | 10. Commit (branch only) | MET | Single commit on `fix/live-ml-inference-clean`, based on `origin/main`. |
@@ -81,26 +81,30 @@ CICIDS/real traffic
 | Same names | MET |
 | Same order | MET (asserted vs model artifact) |
 | Same units | MET (time features converted to microseconds) |
-| Same calculation meaning | **PARTIAL** — bulk / Active-Idle / `min_seg_size_forward` / std formula are documented approximations |
+| Same calculation meaning | **PARTIAL (improved)** — payload-based `act_data_pkt_fwd`/bulk, `ACTIVE_TIMEOUT=5s`, IPv4+transport header lengths; remaining approximations documented (bulk state machine, Active/Idle boundaries, `min_seg_size_forward`, std formula) |
 | Existing `.pkl` model used | MET |
 | BENIGN / ATTACK output | MET (both labels decodable) |
 | Confidence 0–1 | MET |
-| Demonstrated through code/tests | MET (32 tests pass) |
-| Real traffic ingestion | **NOT MET** — no capture parser exists in repo |
+| Demonstrated through code/tests | MET (52 tests pass; 40 without scapy) |
+| Real traffic ingestion | **PARTIAL** — ingestion implemented and validated on a synthetic capture; real labeled traffic not available |
 
 ---
 
 ## 5. Known Gaps and How to Close Them
 
-1. **Real-PCAP end-to-end test** — blocked by the absence of a packet parser and
-   any committed PCAP/CICIDS data. Close by adding a `scapy`/`dpkt` adapter that
-   converts packets into `PacketRecord` objects, then running a benign and an
-   attack capture through `FlowExtractor` → `predict_flow`.
-2. **Per-feature calculation parity with CICFlowMeter** — not established for the
-   approximated features (bulk, Active/Idle boundaries, `min_seg_size_forward`,
-   population standard deviation, initial-window selection). Exact parity with the
-   training-time CICFlowMeter output would require the reference extractor; it is
-   not present in either repository. Disclosed, not claimed.
+1. **Real-PCAP end-to-end test** — the parser now exists
+   (`src/pcap_reader.py`, scapy-based) and is validated end-to-end on a
+   synthetic capture. A genuine capture is still required to confirm behaviour
+   on real, labeled traffic: feed a benign and an attack PCAP through
+   `FlowExtractor` → `predict_flow` (or `scripts/validate_pcap.py`).
+2. **Per-feature calculation parity with CICFlowMeter** — improved
+   (payload-based bulk/`act_data_pkt_fwd`, `ACTIVE_TIMEOUT=5s`,
+   IPv4+transport header lengths) and made diagnosable via
+   `scripts/compare_cicflowmeter.py`, but exact parity is not established: the
+   training-time CICFlowMeter is not present in either repository, and the
+   available Python port (`cicflowmeter`) has its own defects
+   (first-packet duplication, IPv4-only header lengths, `CWE` aliased to `URG`,
+   empty Active/Idle). Disclosed, not claimed.
 3. **Pull Request creation** — ready to open manually against the correct base
    (see section 6).
 

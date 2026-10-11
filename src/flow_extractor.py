@@ -21,6 +21,17 @@ except ImportError:  # pragma: no cover - fallback for flat imports
 # sources such as ``time.time()``.
 MICROSECONDS_PER_SECOND = 1_000_000
 
+# CICFlowMeter constants (see the reference implementation /
+# ``cicflowmeter.constants``). Kept explicit here so the extractor's behaviour is
+# auditable and can be compared against the reference tool.
+#
+# * ``ACTIVE_TIMEOUT`` / ``CLUMP_TIMEOUT`` are in SECONDS.
+# * ``BULK_BOUND`` is the minimum number of payload-bearing packets required for
+#   a run of packets to be counted as a "bulk".
+ACTIVE_TIMEOUT = 5.0
+CLUMP_TIMEOUT = 1.0
+BULK_BOUND = 4
+
 
 @dataclass
 class PacketRecord:
@@ -39,6 +50,7 @@ class PacketRecord:
 
     ip_header_length: int = 0
     tcp_header_length: int = 0
+    payload_length: int = 0
 
     syn: bool = False
     ack: bool = False
@@ -800,21 +812,28 @@ class NetworkFlow:
     @staticmethod
     def _bulk_statistics(packets):
 
-        if len(packets) < 2:
+        # Bulk transfers are defined over payload-bearing packets only.
+        payload_packets = [
+            packet
+            for packet in packets
+            if packet.payload_length > 0
+        ]
+
+        if len(payload_packets) < BULK_BOUND:
             return 0.0, 0.0, 0.0
 
-        packets = sorted(
-            packets,
+        payload_packets = sorted(
+            payload_packets,
             key=lambda packet: packet.timestamp,
         )
 
         bulks = []
 
         current_bulk = [
-            packets[0]
+            payload_packets[0]
         ]
 
-        for packet in packets[1:]:
+        for packet in payload_packets[1:]:
 
             previous = current_bulk[-1]
 
@@ -823,20 +842,20 @@ class NetworkFlow:
                 - previous.timestamp
             )
 
-            if time_gap <= 1.0:
+            if time_gap <= CLUMP_TIMEOUT:
 
                 current_bulk.append(packet)
 
             else:
 
-                if len(current_bulk) >= 2:
+                if len(current_bulk) >= BULK_BOUND:
                     bulks.append(current_bulk)
 
                 current_bulk = [
                     packet
                 ]
 
-        if len(current_bulk) >= 2:
+        if len(current_bulk) >= BULK_BOUND:
             bulks.append(current_bulk)
 
         if not bulks:
@@ -844,7 +863,7 @@ class NetworkFlow:
 
         total_bulk_bytes = sum(
             sum(
-                packet.length
+                packet.payload_length
                 for packet in bulk
             )
             for bulk in bulks
@@ -877,7 +896,7 @@ class NetworkFlow:
             if duration > 0:
 
                 bulk_bytes = sum(
-                    packet.length
+                    packet.payload_length
                     for packet in bulk
                 )
 
@@ -1011,12 +1030,7 @@ class NetworkFlow:
 
         for packet in self.forward_packets:
 
-            header_length = (
-                packet.ip_header_length
-                + packet.tcp_header_length
-            )
-
-            if packet.length > header_length:
+            if packet.payload_length > 0:
                 count += 1
 
         return count
@@ -1024,24 +1038,10 @@ class NetworkFlow:
     @property
     def min_seg_size_forward(self):
 
-        payload_sizes = []
-
-        for packet in self.forward_packets:
-
-            header_length = (
-                packet.ip_header_length
-                + packet.tcp_header_length
-            )
-
-            payload_size = (
-                packet.length
-                - header_length
-            )
-
-            if payload_size >= 0:
-                payload_sizes.append(
-                    payload_size
-                )
+        payload_sizes = [
+            packet.payload_length
+            for packet in self.forward_packets
+        ]
 
         if not payload_sizes:
             return 0
@@ -1081,7 +1081,7 @@ class NetworkFlow:
     # FEATURES 71-78
     # =========================================================
 
-    ACTIVE_IDLE_THRESHOLD = 1.0
+    ACTIVE_IDLE_THRESHOLD = ACTIVE_TIMEOUT
 
     def _active_idle_periods(self):
 

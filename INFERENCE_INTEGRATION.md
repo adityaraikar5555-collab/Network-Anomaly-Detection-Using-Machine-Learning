@@ -208,7 +208,8 @@ against `RandomForestClassifier.feature_names_in_` by the test suite.
 ### 6.2 Extractor API (`src/flow_extractor.py`)
 
 - `PacketRecord` — one captured packet (timestamp in **POSIX seconds**, 5-tuple,
-  length, header lengths, TCP flags, window size).
+  length, IP/TCP header lengths, **application payload length**, TCP flags,
+  window size).
 - `FlowExtractor` — groups packets into bidirectional flows by 5-tuple.
   - `add_packet(packet)` -> `NetworkFlow`
   - `get_flows()` -> `List[NetworkFlow]`
@@ -254,6 +255,49 @@ for flow in extractor.get_flows():
 - `PacketRecord.timestamp` is interpreted as epoch **seconds**; convert at the
   capture boundary if your source provides nanoseconds.
 
+### 6.5 PCAP ingestion & command-line tooling
+
+Real captures are handled by [`src/pcap_reader.py`](src/pcap_reader.py), which
+parses a `.pcap`/`.pcapng` file with the optional **`scapy`** dependency and
+yields `PacketRecord`s (TCP and UDP; non-IP/non-TCP/non-UDP packets are
+skipped). Scapy is imported lazily, so importing the module — and running the
+non-PCAP tests — works without it installed.
+
+```python
+from src.pcap_reader import load_flows, validate_capture
+
+# 1. PCAP -> populated FlowExtractor
+extractor = load_flows("capture.pcap")
+for flow in extractor.get_flows():
+    print(predict_flow(flow))
+
+# 2. Full PCAP -> features -> model report (JSON-serialisable dict)
+report = validate_capture("capture.pcap")
+```
+
+CLI helpers (run from the repository root):
+
+```bash
+# Classify every flow in a capture and print labels + confidences
+python scripts/validate_pcap.py --pcap capture.pcap --json report.json
+
+# Compare our extractor against the reference `cicflowmeter` port on one capture
+python scripts/compare_cicflowmeter.py --pcap capture.pcap
+
+# Generate a deterministic *synthetic* TCP+UDP capture for local smoke tests
+python -m src.sample_capture samples/sample.pcap
+```
+
+`validate_capture` returns a JSON-serialisable report with `packet_count`,
+`flow_count`, `schema_ok`/`schema_errors`, per-flow `prediction`/`confidence`,
+`label_counts` (`{"BENIGN": n, "ATTACK": n}`) and any non-fatal `errors`. It
+raises `FileNotFoundError`, `ScapyUnavailableError` or `CaptureReadError` for a
+missing, library-less, empty, or non-PCAP input.
+
+> **Note:** captures used for validation are **not** committed to the
+> repository. `src/sample_capture.py` produces synthetic traffic only and must
+> not be used to claim real-world detection accuracy.
+
 ---
 
 ## 7. Setup & Dependencies
@@ -262,9 +306,17 @@ for flow in extractor.get_flows():
 pip install -r requirements.txt
 ```
 
-Runtime inference requires `numpy`, `pandas`, `scikit-learn`, and `joblib`. The
-extractor and tests use only the Python standard library plus those packages;
-no PCAP library is required to run the unit tests.
+Runtime inference requires `numpy`, `pandas`, `scikit-learn`, and `joblib`.
+
+- **Reading PCAP files** additionally requires the optional `scapy` package
+  (`pip install scapy`). Without it, `src.pcap_reader` raises
+  `ScapyUnavailableError`; everything else still works.
+- The `cicflowmeter` package (`pip install cicflowmeter`) is a **development-only**
+  dependency, used solely by `scripts/compare_cicflowmeter.py` for parity
+  diagnostics. It is not required at runtime and is not imported by `src/`.
+
+The extractor and the non-PCAP tests use only the Python standard library plus
+the runtime packages, so no PCAP library is required to run the core test suite.
 
 ---
 
@@ -275,8 +327,11 @@ python -m unittest discover -s tests -v
 ```
 
 The suite covers schema/count/order parity against the model artifact, extractor
-edge cases (single-packet, empty, multi-flow), units, TCP flags, label decoding,
-confidence mapping, and end-to-end `extractor -> model` inference.
+edge cases (single-packet, empty, multi-flow), units, TCP flags, payload-based
+features (`act_data_pkt_fwd`, bulk, `min_seg_size_forward`), Active/Idle
+thresholding, label decoding, confidence mapping, PCAP ingestion
+(`tests/test_pcap_reader.py`, skipped when `scapy` is absent), and end-to-end
+`extractor -> model` inference. **52 tests** run when `scapy` is installed.
 
 ---
 
@@ -290,42 +345,73 @@ confidence mapping, and end-to-end `extractor -> model` inference.
 - No `NaN`/`Inf` values leave the extractor.
 - `predict_flow` returns a label in `{BENIGN, ATTACK}` and a finite confidence
   in `[0, 1]`.
+- **PCAP ingestion is implemented and tested** (`src/pcap_reader.py`,
+  `scripts/validate_pcap.py`): a synthetic TCP+UDP capture flows end-to-end
+  through `PCAP -> FlowExtractor -> 78 features -> model -> label/confidence`.
+- A **parity diagnostic** (`scripts/compare_cicflowmeter.py`) runs our extractor
+  and the reference `cicflowmeter` port on the same capture and reports
+  per-feature differences.
 - The existing `models/cicids_anomaly_model.pkl` and
   `models/cicids_label_encoder.pkl` are used unchanged (identical Git blob hashes
   on `main` and on this branch).
 
 **Not verified (requires artifacts/data not present in this repository):**
 
-- **Real-PCAP end-to-end inference.** This repository contains no PCAP parser /
-  capture adapter, no committed PCAP or CICIDS dataset, and no packet-parsing
-  library (`scapy`/`dpkt`/`pyshark`) is installed. Only synthetic in-memory flows
-  were used. To test on real traffic, provide a PCAP plus an adapter that yields
-  `PacketRecord`s and run the snippet in section 6.3.
-- **Attack detection on real, labeled traffic.** No labeled PCAP is available,
-  so per-class accuracy on live traffic is unmeasured.
-- **Bit-for-bit calculation parity with CICFlowMeter.** Not established for the
-  approximated features listed in section 10.
+- **Real, labeled traffic accuracy.** No genuine network capture or CICIDS-2017
+  PCAP/dataset is available (outbound access to capture hosts is blocked in this
+  environment), so BENIGN/ATTACK accuracy on real traffic is unmeasured. Only a
+  synthetic capture was used; it is explicitly not CICIDS-2017 traffic.
+- **Bit-for-bit calculation parity with CICFlowMeter.** The reference Java
+  CICFlowMeter is not available offline. The available Python port
+  (`cicflowmeter`) has its own known defects (see section 10), so equality with
+  it is neither expected nor desirable.
 
 ---
 
 ## 10. Known Differences vs. CICFlowMeter
 
 The extractor reproduces the CICIDS/CICFlowMeter feature definitions for the
-fields below, but a few calculations are documented approximations and are
-**not** claimed to be bit-for-bit identical to the CICFlowMeter reference:
+fields below. Several calculations remain documented approximations, and the only
+accessible reference implementation contains its own defects, so byte-for-byte
+equality with CICFlowMeter is **not** claimed:
 
 - **Bulk features** (`*Avg Bytes/Bulk`, `*Avg Packets/Bulk`, `*Avg Bulk Rate`)
-  use a fixed 1-second inter-packet threshold to group a bulk; CICFlowMeter uses
-  an internal packet-count/timeout heuristic.
-- **Active/Idle** uses a 1-second active threshold; period boundary semantics may
-  differ from CICFlowMeter.
-- **`min_seg_size_forward`** uses the minimum forward payload size rather than
-  the initial TCP segment size only.
+  now operate on **application-layer payload only** and require at least
+  `BULK_BOUND = 4` payload-bearing packets within a `CLUMP_TIMEOUT = 1 s` gap.
+  CICFlowMeter's original bulk state machine is more intricate (it tracks bulk
+  start/last timestamps incrementally); our contiguous-run grouping is a close
+  approximation.
+- **Active/Idle** uses the CICFlowMeter `ACTIVE_TIMEOUT = 5 s` boundary.
+  CICFlowMeter's exact boundary bookkeeping (separate idle/active subflows keyed
+  off the 1 s clump timeout) may still differ.
+- **`min_seg_size_forward`** uses the minimum forward **payload** size (0 when a
+  header-only forward packet exists).
 - **Standard-deviation features** (`*Std`) use the population formula (÷ N).
 - **`Init_Win_bytes_forward` / `Init_Win_bytes_backward`** use the first packet in
   the respective direction with a non-zero window, rather than strictly the
   initial window advertisement.
+- **`Fwd Header Length` / `Bwd Header Length`** sum the IPv4 **and** transport
+  (TCP/UDP) header bytes per packet. The Python `cicflowmeter` port sums the IPv4
+  header only (its `_header_size` ignores the transport header).
 - **`Fwd Header Length.1`** intentionally duplicates `Fwd Header Length`, matching
   the duplicated column present in the training CSV.
+- **`CWE Flag Count`** counts the real TCP CWR flag. The Python `cicflowmeter`
+  port aliases it to the URG flag count (a port bug).
 - **Bidirectional flow timing** relies on capture-observed timestamps; out-of-order
   arrival is handled by sorting, which may differ slightly from wire order.
+
+### Reference port defects (why we do not target it)
+
+`scripts/compare_cicflowmeter.py` uses the Python `cicflowmeter` port as a
+convenience reference. That port contains defects that make it unsuitable as a
+parity target:
+
+- **First-packet duplication:** `FlowSession.process` stores the first packet in
+  `Flow.__init__` and then adds it again, so every flow reports one extra packet
+  (and a spurious 0-second IAT).
+- **IPv4-only header lengths** (see above).
+- **`CWE Flag Count` aliased to URG** (`data["cwr_flag_count"] = data["fwd_urg_flags"]`).
+- **Active/Idle** are effectively empty for in-order flows.
+
+True parity would require the original Java CICFlowMeter (the implementation used
+to generate CICIDS-2017), which is not available in this offline environment.

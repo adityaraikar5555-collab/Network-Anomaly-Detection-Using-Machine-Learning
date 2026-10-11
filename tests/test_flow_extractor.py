@@ -35,6 +35,7 @@ def _make_packet(
     protocol=6,
     ip_header_length=20,
     tcp_header_length=20,
+    payload_length=0,
     tcp_window_size=0,
     syn=False,
     ack=False,
@@ -55,6 +56,7 @@ def _make_packet(
         length=length,
         ip_header_length=ip_header_length,
         tcp_header_length=tcp_header_length,
+        payload_length=payload_length,
         tcp_window_size=tcp_window_size,
         syn=syn,
         ack=ack,
@@ -200,6 +202,71 @@ class TestFlowExtractorEdgeCases(unittest.TestCase):
         for vector in vectors:
             self.assertEqual(len(vector), 78)
             self.assertTrue(all(isinstance(v, float) for v in vector))
+
+
+class TestPayloadBasedFeatures(unittest.TestCase):
+    """Payload-driven features: act_data_pkt_fwd, min_seg_size_forward, bulk."""
+
+    @staticmethod
+    def _flow(forward_payloads, *, base_time=1000.0, step=0.0005):
+        extractor = FlowExtractor()
+        for i, payload in enumerate(forward_payloads):
+            extractor.add_packet(_make_packet(
+                base_time + i * step, "10.0.0.1", "10.0.0.2", 40000, 80,
+                54 + payload, payload_length=payload, ack=True,
+            ))
+        return extractor.get_flows()[0]
+
+    def test_act_data_pkt_fwd_counts_only_payload_packets(self):
+        flow = self._flow([0, 100, 200, 0, 300])
+        self.assertEqual(flow.extract_features()["act_data_pkt_fwd"], 3.0)
+
+    def test_min_seg_size_forward_is_min_forward_payload(self):
+        flow = self._flow([0, 100, 250, 300])
+        self.assertEqual(flow.extract_features()["min_seg_size_forward"], 0.0)
+
+        flow_no_zero = self._flow([100, 250, 300])
+        self.assertEqual(
+            flow_no_zero.extract_features()["min_seg_size_forward"], 100.0
+        )
+
+    def test_bulk_requires_bulk_bound_payload_packets(self):
+        # Only 3 payload packets -> below BULK_BOUND (4) -> all bulk features 0.
+        flow = self._flow([100, 100, 100])
+        features = flow.extract_features()
+        self.assertEqual(features["Fwd Avg Bytes/Bulk"], 0.0)
+        self.assertEqual(features["Fwd Avg Packets/Bulk"], 0.0)
+        self.assertEqual(features["Fwd Avg Bulk Rate"], 0.0)
+
+    def test_bulk_uses_payload_bytes(self):
+        # 4 payload packets of 100 bytes, all within CLUMP_TIMEOUT (1s).
+        # One bulk of 4 packets -> 400 bytes per bulk.
+        flow = self._flow([100, 100, 100, 100])
+        features = flow.extract_features()
+        self.assertEqual(features["Fwd Avg Bytes/Bulk"], 400.0)
+        self.assertEqual(features["Fwd Avg Packets/Bulk"], 4.0)
+        self.assertGreater(features["Fwd Avg Bulk Rate"], 0.0)
+
+
+class TestActiveIdleThreshold(unittest.TestCase):
+    """Active/Idle splitting uses the CICFlowMeter ACTIVE_TIMEOUT of 5 seconds."""
+
+    @staticmethod
+    def _flow(gap):
+        extractor = FlowExtractor()
+        extractor.add_packet(_make_packet(1000.0, "10.0.0.1", "10.0.0.2", 1, 80, 100, ack=True))
+        extractor.add_packet(_make_packet(1000.0 + gap, "10.0.0.1", "10.0.0.2", 1, 80, 100, ack=True))
+        return extractor.get_flows()[0]
+
+    def test_gap_below_timeout_stays_active(self):
+        features = self._flow(3.0).extract_features()
+        self.assertAlmostEqual(features["Active Max"], 3_000_000.0)
+        self.assertEqual(features["Idle Max"], 0.0)
+
+    def test_gap_above_timeout_is_idle(self):
+        features = self._flow(6.0).extract_features()
+        self.assertAlmostEqual(features["Idle Max"], 6_000_000.0)
+        self.assertEqual(features["Active Max"], 0.0)
 
 
 class TestFlowModelInference(unittest.TestCase):
