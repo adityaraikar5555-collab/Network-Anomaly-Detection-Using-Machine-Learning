@@ -4,7 +4,7 @@
 **Repository:** `adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning` (remote `origin`)
 **PR head branch:** `fix/live-ml-inference-clean`
 **PR base branch:** `main`
-**Head commit:** `318131b0d929cea9fa72b476a6b3bf2a38861570`
+**Implementation commit:** `318131b0d929cea9fa72b476a6b3bf2a38861570`
 **Base commit:** `ec3300e5bca18016cf814f0db465296bb65c1a3c`
 **Scope:** Validate and fix the live 78-feature flow extractor so it feeds the
 existing `models/cicids_anomaly_model.pkl` the same 78 features it was trained on

@@ -3,10 +3,14 @@
 **Repository:** `adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning` (remote `origin`)
 **Pull-request head branch:** `fix/live-ml-inference-clean`
 **Pull-request base branch:** `main`
-**Head commit:** `318131b0d929cea9fa72b476a6b3bf2a38861570`
+**Implementation commit:** `318131b0d929cea9fa72b476a6b3bf2a38861570`
 **Base commit:** `ec3300e5bca18016cf814f0db465296bb65c1a3c`
-**Divergence:** 1 commit ahead, 0 behind `main` (linear history, common ancestor = `main`)
+**Divergence:** based on `main`; linear history, 0 commits behind `main`
 **Date:** 2026-10-11
+
+> The branch head is `fix/live-ml-inference-clean`. `318131b` is the commit that
+> adds the inference implementation; documentation-only commits may follow it,
+> so the branch tip can advance without changing the code or the model.
 
 ---
 

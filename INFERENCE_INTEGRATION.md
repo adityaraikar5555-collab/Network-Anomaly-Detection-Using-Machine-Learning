@@ -1,7 +1,7 @@
 # CICIDS-2017 ML Inference Integration & Completion Report
 
 **Repository:** `adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning`
-**Branch:** `fix/live-ml-inference-clean` (based on `main`, commit `318131b`)
+**Branch:** `fix/live-ml-inference-clean` (based on `main`; implementation commit `318131b`)
 **Related docs:** `LIVE_ML_INFERENCE_UPDATES.md`, `REQUIREMENTS_COMPLIANCE.md`
 
 ---
