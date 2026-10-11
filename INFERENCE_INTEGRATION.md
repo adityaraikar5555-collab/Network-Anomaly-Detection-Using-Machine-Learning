@@ -5,7 +5,10 @@
 This document summarizes the reusable Machine Learning inference layer implemented for the **CICIDS-2017 Random Forest Model**. It provides the integration contract for the backend/FastAPI service and risk scoring engine.
 
 ```text
-Network Traffic Flow Features
+Raw packets (PacketRecord)
+            ↓
+    src/flow_extractor.py
+ (Flow grouping + 78-feature extraction)
             ↓
     src/prediction.py
  (Validation & Preprocessing)
@@ -181,10 +184,133 @@ def predict_network_traffic(payload: FlowFeaturesRequest):
 
 ---
 
-## 6. Running Tests
+## 6. Live Flow Extraction & End-to-End Inference
 
-To run the automated test suite:
+### 6.1 Canonical feature schema
+
+The single source of truth for the 78 feature names and their order is
+[`src/cicids_features.py`](src/cicids_features.py):
+
+- `CICIDS_FEATURE_NAMES` — ordered tuple of the 78 names.
+- `CICIDS_FEATURE_COUNT` — `78`.
+
+`src/prediction.py` imports and re-exports `CICIDS_FEATURE_NAMES` for backward
+compatibility, and `src/flow_extractor.py` imports the same tuple, so the
+extractor and the inference layer can never drift apart. The tuple is asserted
+against `RandomForestClassifier.feature_names_in_` by the test suite.
+
+### 6.2 Extractor API (`src/flow_extractor.py`)
+
+- `PacketRecord` — one captured packet (timestamp in **POSIX seconds**, 5-tuple,
+  length, header lengths, TCP flags, window size).
+- `FlowExtractor` — groups packets into bidirectional flows by 5-tuple.
+  - `add_packet(packet)` -> `NetworkFlow`
+  - `get_flows()` -> `List[NetworkFlow]`
+  - `extract_flow_features()` -> `List[Dict[str, float]]`
+  - `get_feature_vectors()` -> `List[List[float]]`
+- `NetworkFlow`
+  - `extract_features()` -> ordered `Dict[str, float]` (exactly 78 keys)
+  - `to_feature_vector()` -> `List[float]` (78 values, training order)
+
+`extract_features()` raises `ValueError` if the assembled schema does not match
+the canonical 78 names, and replaces any non-finite value with `0.0`.
+
+### 6.3 End-to-end inference (`predict_flow`)
+
+`src/prediction.py` exposes:
+
+```python
+predict_flow(flow, model=None, label_encoder=None) -> dict
+```
+
+which calls `flow.extract_features()` and then `predict_cicids(...)`, returning
+the same `{"prediction", "confidence", "model"}` dictionary. It raises
+`TypeError` if the object has no `extract_features()` method.
+
+```python
+from src.flow_extractor import FlowExtractor
+from src.prediction import predict_flow
+
+extractor = FlowExtractor()
+for packet in capture_source:   # your PCAP/live adapter yields PacketRecord
+    extractor.add_packet(packet)
+
+for flow in extractor.get_flows():
+    print(predict_flow(flow))
+```
+
+### 6.4 Units
+
+- Time-based features (`Flow Duration`, all `*IAT*`, `Active *`, `Idle *`) are
+  emitted in **microseconds** to match CICIDS-2017.
+- Rate features (`Flow Bytes/s`, `Flow Packets/s`, `Fwd Packets/s`,
+  `Bwd Packets/s`) are per **second**.
+- `PacketRecord.timestamp` is interpreted as epoch **seconds**; convert at the
+  capture boundary if your source provides nanoseconds.
+
+---
+
+## 7. Setup & Dependencies
 
 ```bash
-python -m unittest discover -s tests
+pip install -r requirements.txt
 ```
+
+Runtime inference requires `numpy`, `pandas`, `scikit-learn`, and `joblib`. The
+extractor and tests use only the Python standard library plus those packages;
+no PCAP library is required to run the unit tests.
+
+---
+
+## 8. Running Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The suite covers schema/count/order parity against the model artifact, extractor
+edge cases (single-packet, empty, multi-flow), units, TCP flags, label decoding,
+confidence mapping, and end-to-end `extractor -> model` inference.
+
+---
+
+## 9. Verification Status
+
+**Verified (executed on this branch):**
+
+- Exact 78 feature names and order match `model.feature_names_in_`.
+- `Flow Duration` / IAT / Active-Idle emitted in microseconds.
+- No `NaN`/`Inf` values leave the extractor.
+- `predict_flow` returns a label in `{BENIGN, ATTACK}` and a finite confidence
+  in `[0, 1]`.
+- The existing `models/cicids_anomaly_model.pkl` and
+  `models/cicids_label_encoder.pkl` are used unchanged.
+
+**Not verified (requires artifacts/data not present in this repository):**
+
+- **Real-PCAP end-to-end inference.** This repository contains no PCAP parser /
+  capture adapter, and no PCAP or CICIDS dataset is committed. Only synthetic
+  in-memory flows were used. To test on real traffic, provide a PCAP plus an
+  adapter that yields `PacketRecord`s (e.g. via `scapy`/`dpkt`/`pyshark`) and
+  run the snippet in section 6.3.
+- **Attack detection on real, labeled traffic.** No labeled PCAP is available,
+  so per-class accuracy on live traffic is unmeasured.
+
+---
+
+## 10. Known Differences vs. CICFlowMeter
+
+The extractor reproduces the CICIDS/CICFlowMeter feature definitions for the
+fields below, but a few calculations are documented approximations and are
+**not** claimed to be bit-for-bit identical to the CICFlowMeter reference:
+
+- **Bulk features** (`*Avg Bytes/Bulk`, `*Avg Packets/Bulk`, `*Avg Bulk Rate`)
+  use a fixed 1-second inter-packet threshold to group a bulk; CICFlowMeter uses
+  an internal packet-count/timeout heuristic.
+- **Active/Idle** uses a 1-second active threshold.
+- **`min_seg_size_forward`** uses the minimum forward payload size rather than
+  the initial TCP segment size only.
+- **`Fwd Header Length.1`** intentionally duplicates `Fwd Header Length`, matching
+  the duplicated column present in the training CSV.
+- **Bidirectional flow timing** relies on capture-observed timestamps; out-of-order
+  arrival is handled by sorting, which may differ slightly from wire order.
