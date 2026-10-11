@@ -8,10 +8,26 @@ CICIDS-style flow features.
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional
 
+try:  # Support both "src.flow_extractor" and flat "flow_extractor" import styles.
+    from .cicids_features import CICIDS_FEATURE_NAMES
+except ImportError:  # pragma: no cover - fallback for flat imports
+    from cicids_features import CICIDS_FEATURE_NAMES
+
+
+# CICIDS-2017 time-based features (Flow Duration, IATs, Active/Idle) are
+# expressed in microseconds, while rate features (Flow Bytes/s, Flow Packets/s,
+# Fwd/Bwd Packets/s) are expressed per second. ``PacketRecord.timestamp`` is
+# interpreted as POSIX/epoch seconds (a float), matching typical live capture
+# sources such as ``time.time()``.
+MICROSECONDS_PER_SECOND = 1_000_000
+
 
 @dataclass
 class PacketRecord:
-    """Represents one captured network packet."""
+    """Represents one captured network packet.
+
+    ``timestamp`` is expected to be in seconds.
+    """
 
     timestamp: float
     src_ip: str
@@ -91,6 +107,12 @@ class NetworkFlow:
             return 0.0
 
         return self.end_time - self.start_time
+
+    @property
+    def duration_microseconds(self) -> float:
+        """Flow duration in microseconds (the unit used by CICIDS-2017)."""
+
+        return self.duration * MICROSECONDS_PER_SECOND
 
     @property
     def destination_port(self) -> int:
@@ -196,7 +218,7 @@ class NetworkFlow:
                 self.destination_port,
 
             "Flow Duration":
-                self.duration,
+                self.duration_microseconds,
 
             "Total Fwd Packets":
                 self.total_fwd_packets,
@@ -272,8 +294,7 @@ class NetworkFlow:
         )
 
         iats = [
-            timestamps[index]
-            - timestamps[index - 1]
+            (timestamps[index] - timestamps[index - 1]) * MICROSECONDS_PER_SECOND
             for index in range(1, len(timestamps))
         ]
 
@@ -346,8 +367,7 @@ class NetworkFlow:
         )
 
         iats = [
-            timestamps[index]
-            - timestamps[index - 1]
+            (timestamps[index] - timestamps[index - 1]) * MICROSECONDS_PER_SECOND
             for index in range(1, len(timestamps))
         ]
 
@@ -508,6 +528,9 @@ class NetworkFlow:
     def tcp_flag_and_rate_features(self):
 
         return {
+
+            "Fwd PSH Flags":
+                self.fwd_psh_flags,
 
             "Bwd PSH Flags":
                 self.bwd_psh_flags,
@@ -1090,19 +1113,19 @@ class NetworkFlow:
 
             else:
 
-                # Finish current active period.
+                # Finish current active period (stored in microseconds).
                 active_duration = (
                     previous_timestamp
                     - current_active_start
-                )
+                ) * MICROSECONDS_PER_SECOND
 
                 active_periods.append(
                     active_duration
                 )
 
-                # Record the idle period.
+                # Record the idle period (stored in microseconds).
                 idle_periods.append(
-                    gap
+                    gap * MICROSECONDS_PER_SECOND
                 )
 
                 # New active period begins.
@@ -1110,11 +1133,11 @@ class NetworkFlow:
 
                 previous_timestamp = packet.timestamp
 
-        # Finish final active period.
+        # Finish final active period (stored in microseconds).
         final_active_duration = (
             previous_timestamp
             - current_active_start
-        )
+        ) * MICROSECONDS_PER_SECOND
 
         active_periods.append(
             final_active_duration
@@ -1204,6 +1227,64 @@ class NetworkFlow:
             "Idle Min":
                 idle_min,
         }
+
+    # =========================================================
+    # CANONICAL ASSEMBLY (78 features, training order)
+    # =========================================================
+
+    def extract_features(self) -> Dict[str, float]:
+        """Return all 78 CICIDS features in the exact training schema order.
+
+        The returned mapping is ordered according to
+        :data:`src.cicids_features.CICIDS_FEATURE_NAMES`, which matches
+        ``RandomForestClassifier.feature_names_in_`` of the trained model.
+        Non-finite values are replaced with ``0.0`` so the vector is always
+        safe to feed to the inference layer (which rejects NaN/Inf).
+        """
+
+        chunks = [
+            self.basic_cicids_features(),
+            self.rate_iat_cicids_features(),
+            self.forward_backward_iat_features(),
+            self.tcp_flag_and_rate_features(),
+            self.packet_length_and_tcp_flag_features(),
+            self.chunk8_features(),
+            self.chunk9_features(),
+            self.chunk10_features(),
+            self.chunk11_features(),
+        ]
+
+        collected: Dict[str, float] = {}
+        for chunk in chunks:
+            for name, value in chunk.items():
+                collected[name] = value
+
+        missing = [
+            name for name in CICIDS_FEATURE_NAMES if name not in collected
+        ]
+        extra = [
+            name for name in collected if name not in CICIDS_FEATURE_NAMES
+        ]
+        if missing or extra:
+            raise ValueError(
+                "Extracted feature schema does not match the CICIDS training "
+                f"schema. Missing={missing}, Extra={extra}."
+            )
+
+        ordered: Dict[str, float] = {}
+        for name in CICIDS_FEATURE_NAMES:
+            value = float(collected[name])
+            if value != value or value in (float("inf"), float("-inf")):
+                value = 0.0
+            ordered[name] = value
+
+        return ordered
+
+    def to_feature_vector(self) -> List[float]:
+        """Return the 78 features as an ordered numeric vector."""
+
+        features = self.extract_features()
+        return [features[name] for name in CICIDS_FEATURE_NAMES]
 
 
 # =============================================================
@@ -1303,6 +1384,22 @@ class FlowExtractor:
         return list(
             self.flows.values()
         )
+
+    def extract_flow_features(self) -> List[Dict[str, float]]:
+        """Return canonical 78-feature mappings for every extracted flow."""
+
+        return [
+            flow.extract_features()
+            for flow in self.get_flows()
+        ]
+
+    def get_feature_vectors(self) -> List[List[float]]:
+        """Return canonical 78-value vectors for every extracted flow."""
+
+        return [
+            flow.to_feature_vector()
+            for flow in self.get_flows()
+        ]
 
     def clear(self):
 

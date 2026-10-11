@@ -178,5 +178,40 @@ class TestCicidsPrediction(unittest.TestCase):
         self.assertIn("contains None value", str(ctx.exception))
 
 
+class _StubModel:
+    """Minimal model stub returning a fixed class and probability vector."""
+
+    def __init__(self, klass: int, probabilities):
+        self._klass = klass
+        self._probabilities = probabilities
+
+    def predict(self, X):
+        return np.array([self._klass])
+
+    def predict_proba(self, X):
+        return np.array([self._probabilities])
+
+
+class TestLabelDecodingAndConfidence(unittest.TestCase):
+    """Deterministically verify label decoding and confidence calculation."""
+
+    def _features(self):
+        return {col: 0.0 for col in CICIDS_FEATURE_NAMES}
+
+    def test_attack_decoding_and_confidence(self):
+        _, le = load_cicids_artifacts()
+        model = _StubModel(0, [0.87, 0.13])
+        result = predict_cicids(self._features(), model=model, label_encoder=le)
+        self.assertEqual(result["prediction"], "ATTACK")
+        self.assertAlmostEqual(result["confidence"], 0.87, places=4)
+
+    def test_benign_decoding_and_confidence(self):
+        _, le = load_cicids_artifacts()
+        model = _StubModel(1, [0.05, 0.95])
+        result = predict_cicids(self._features(), model=model, label_encoder=le)
+        self.assertEqual(result["prediction"], "BENIGN")
+        self.assertAlmostEqual(result["confidence"], 0.95, places=4)
+
+
 if __name__ == "__main__":
     unittest.main()
