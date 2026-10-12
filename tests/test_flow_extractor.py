@@ -9,12 +9,15 @@ resulting vector.
 
 import math
 import unittest
+from unittest import mock
 
 from src.cicids_features import CICIDS_FEATURE_NAMES
 from src.flow_extractor import (
     MICROSECONDS_PER_SECOND,
     FlowExtractor,
+    InvalidPacketError,
     NetworkFlow,
+    NonFiniteFeatureError,
     PacketRecord,
 )
 from src.prediction import (
@@ -35,6 +38,7 @@ def _make_packet(
     protocol=6,
     ip_header_length=20,
     tcp_header_length=20,
+    payload_length=0,
     tcp_window_size=0,
     syn=False,
     ack=False,
@@ -55,6 +59,7 @@ def _make_packet(
         length=length,
         ip_header_length=ip_header_length,
         tcp_header_length=tcp_header_length,
+        payload_length=payload_length,
         tcp_window_size=tcp_window_size,
         syn=syn,
         ack=ack,
@@ -236,3 +241,182 @@ class TestFlowModelInference(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestPayloadDrivenFeatures(unittest.TestCase):
+    def test_act_data_pkt_fwd_counts_only_payload_packets(self):
+        extractor = FlowExtractor()
+        extractor.add_packet(_make_packet(1.0, 'a','b',1,80,100, payload_length=0, ack=True))
+        extractor.add_packet(_make_packet(1.1, 'a','b',1,80,150, payload_length=50, ack=True))
+        extractor.add_packet(_make_packet(1.2, 'a','b',1,80,200, payload_length=100, ack=True))
+        flow = extractor.get_flows()[0]
+        features = flow.extract_features()
+        self.assertEqual(features['act_data_pkt_fwd'], 2.0)
+
+    def test_min_seg_size_forward_uses_payload(self):
+        extractor = FlowExtractor()
+        extractor.add_packet(_make_packet(1.0, 'a','b',1,80,74, payload_length=20, ack=True))
+        extractor.add_packet(_make_packet(1.1, 'a','b',1,80,104, payload_length=50, ack=True))
+        extractor.add_packet(_make_packet(1.2, 'a','b',1,80,154, payload_length=100, ack=True))
+        flow = extractor.get_flows()[0]
+        features = flow.extract_features()
+        self.assertEqual(features['min_seg_size_forward'], 20.0)
+
+    def test_min_seg_size_forward_zero_when_header_only(self):
+        extractor = FlowExtractor()
+        extractor.add_packet(_make_packet(1.0, 'a','b',1,80,100, payload_length=0, ack=True))
+        extractor.add_packet(_make_packet(1.1, 'a','b',1,80,150, payload_length=0, ack=True))
+        flow = extractor.get_flows()[0]
+        features = flow.extract_features()
+        self.assertEqual(features['min_seg_size_forward'], 0.0)
+        self.assertEqual(features['act_data_pkt_fwd'], 0.0)
+
+class TestBulkFeatures(unittest.TestCase):
+
+    def _burst(self, count=5, payload=100, spacing=0.01, start=1000.0):
+        extractor = FlowExtractor()
+        t = start
+        for _ in range(count):
+            extractor.add_packet(_make_packet(t, 'a', 'b', 1, 80, payload + 54, payload_length=payload, ack=True))
+            t += spacing
+        return extractor.get_flows()[0]
+
+    def test_bulk_of_five_payload_packets(self):
+        flow = self._burst()
+        f = flow.extract_features()
+        self.assertEqual(f['Fwd Avg Bytes/Bulk'], 500.0)
+        self.assertEqual(f['Fwd Avg Packets/Bulk'], 5.0)
+        self.assertAlmostEqual(f['Fwd Avg Bulk Rate'], 12500.0, places=3)
+        self.assertEqual(f['Bwd Avg Bytes/Bulk'], 0.0)
+
+    def test_bulk_not_reached_below_bound(self):
+        flow = self._burst(count=3)
+        f = flow.extract_features()
+        self.assertEqual(f['Fwd Avg Bytes/Bulk'], 0.0)
+        self.assertEqual(f['Fwd Avg Packets/Bulk'], 0.0)
+        self.assertEqual(f['Fwd Avg Bulk Rate'], 0.0)
+
+    def test_bulk_broken_by_gap(self):
+        extractor = FlowExtractor()
+        t = 1000.0
+        for _ in range(5):
+            extractor.add_packet(_make_packet(t, 'a', 'b', 1, 80, 154, payload_length=100, ack=True))
+            t += 2.0
+        f = extractor.get_flows()[0].extract_features()
+        self.assertEqual(f['Fwd Avg Bytes/Bulk'], 0.0)
+
+    def test_bulk_header_only_packets_ignored(self):
+        extractor = FlowExtractor()
+        t = 1000.0
+        for _ in range(5):
+            extractor.add_packet(_make_packet(t, 'a', 'b', 1, 80, 100, payload_length=0, ack=True))
+            t += 0.01
+        f = extractor.get_flows()[0].extract_features()
+        self.assertEqual(f['Fwd Avg Bytes/Bulk'], 0.0)
+
+    def test_bulk_interleaving_resets_forward(self):
+        extractor = FlowExtractor()
+        for i in range(3):
+            extractor.add_packet(_make_packet(1000.0 + i * 0.01, 'a', 'b', 1, 80, 154, payload_length=100, ack=True))
+        extractor.add_packet(_make_packet(1000.03, 'b', 'a', 80, 1, 154, payload_length=100, ack=True))
+        extractor.add_packet(_make_packet(1000.04, 'a', 'b', 1, 80, 154, payload_length=100, ack=True))
+        f = extractor.get_flows()[0].extract_features()
+        self.assertEqual(f['Fwd Avg Bytes/Bulk'], 0.0)
+
+
+    def test_bulk_backward_only(self):
+        extractor = FlowExtractor()
+        t = 1000.0
+        extractor.add_packet(_make_packet(t, 'a', 'b', 1, 80, 60, payload_length=0, ack=True))
+        t += 0.001
+        for _ in range(5):
+            extractor.add_packet(_make_packet(t, 'b', 'a', 80, 1, 154, payload_length=100, ack=True))
+            t += 0.01
+        f = extractor.get_flows()[0].extract_features()
+        self.assertEqual(f['Bwd Avg Bytes/Bulk'], 500.0)
+        self.assertEqual(f['Bwd Avg Packets/Bulk'], 5.0)
+        self.assertAlmostEqual(f['Bwd Avg Bulk Rate'], 12500.0, places=3)
+
+class TestActiveIdleFeatures(unittest.TestCase):
+
+    def _flow(self, timestamps):
+        extractor = FlowExtractor()
+        for t in timestamps:
+            extractor.add_packet(_make_packet(t, 'a', 'b', 1, 80, 100, ack=True))
+        return extractor.get_flows()[0].extract_features()
+
+    def test_single_active_period(self):
+        f = self._flow([1000.0, 1001.0, 1002.0])
+        self.assertAlmostEqual(f['Active Max'], 2_000_000.0)
+        self.assertAlmostEqual(f['Active Mean'], 2_000_000.0)
+        self.assertAlmostEqual(f['Active Min'], 2_000_000.0)
+        self.assertEqual(f['Active Std'], 0.0)
+        self.assertEqual(f['Idle Max'], 0.0)
+
+    def test_gap_above_threshold_creates_idle(self):
+        f = self._flow([1000.0, 1001.0, 1010.0])
+        self.assertAlmostEqual(f['Active Max'], 1_000_000.0)
+        self.assertAlmostEqual(f['Idle Max'], 9_000_000.0)
+
+    def test_gap_exactly_threshold_stays_active(self):
+        f = self._flow([1000.0, 1005.0])
+        self.assertAlmostEqual(f['Active Max'], 5_000_000.0)
+        self.assertEqual(f['Idle Max'], 0.0)
+
+    def test_gap_just_above_threshold_splits(self):
+        f = self._flow([1000.0, 1005.001])
+        self.assertEqual(f['Active Max'], 0.0)
+        self.assertAlmostEqual(f['Idle Max'], 5_001_000.0, delta=1.0)
+
+class TestFeatureSanitization(unittest.TestCase):
+
+    def test_nonfinite_feature_raises(self):
+        flow = build_sample_flow()
+        with mock.patch.object(NetworkFlow, 'flow_bytes_per_second', new_callable=mock.PropertyMock) as prop:
+            prop.return_value = float('inf')
+            with self.assertRaises(NonFiniteFeatureError) as ctx:
+                flow.extract_features()
+        self.assertIn(('Flow Bytes/s', float('inf')), ctx.exception.diagnostics)
+
+    def test_feature_diagnostics_lists_offenders(self):
+        flow = build_sample_flow()
+        with mock.patch.object(NetworkFlow, 'flow_bytes_per_second', new_callable=mock.PropertyMock) as prop:
+            prop.return_value = float('inf')
+            diags = flow.feature_diagnostics()
+            self.assertEqual([name for name, _ in diags], ['Flow Bytes/s'])
+
+    def test_feature_diagnostics_empty_when_finite(self):
+        flow = build_sample_flow()
+        self.assertEqual(flow.feature_diagnostics(), [])
+
+class TestPacketValidation(unittest.TestCase):
+
+    def test_valid_packet_passes(self):
+        FlowExtractor.validate_packet(_make_packet(1.0, 'a', 'b', 1, 2, 100))
+
+    def test_nan_timestamp_rejected(self):
+        with self.assertRaises(InvalidPacketError):
+            FlowExtractor().add_packet(_make_packet(float('nan'), 'a', 'b', 1, 2, 100))
+
+    def test_infinite_length_rejected(self):
+        with self.assertRaises(InvalidPacketError):
+            FlowExtractor.validate_packet(_make_packet(1.0, 'a', 'b', 1, 2, float('inf')))
+
+    def test_negative_length_rejected(self):
+        with self.assertRaises(InvalidPacketError):
+            FlowExtractor.validate_packet(_make_packet(1.0, 'a', 'b', 1, 2, -5))
+
+    def test_negative_payload_rejected(self):
+        with self.assertRaises(InvalidPacketError):
+            FlowExtractor.validate_packet(_make_packet(1.0, 'a', 'b', 1, 2, 100, payload_length=-1))
+
+    def test_add_packet_rejects_nan_timestamp(self):
+        with self.assertRaises(InvalidPacketError):
+            FlowExtractor().add_packet(_make_packet(float('nan'), 'a', 'b', 1, 2, 100))
+
+    def test_validate_packet_rejects_nonfinite_timestamp(self):
+        with self.assertRaises(InvalidPacketError):
+            FlowExtractor.validate_packet(_make_packet(float('inf'), 'a', 'b', 1, 2, 100))
+
+    def test_validate_packet_rejects_nonfinite_payload(self):
+        with self.assertRaises(InvalidPacketError):
+            FlowExtractor.validate_packet(_make_packet(1.0, 'a', 'b', 1, 2, 100, payload_length=float('nan')))
