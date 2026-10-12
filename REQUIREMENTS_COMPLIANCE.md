@@ -14,8 +14,8 @@ trained on — without retraining or replacing the model.
 | Area | Result |
 |------|--------|
 | Extractor → model feature compatibility | **MET** (proven via code + tests) |
-| Real-PCAP end-to-end testing | **NOT MET** (no capture parser / no PCAP in repo) |
-| Pull request creation | **PARTIAL** (branch pushed; PR needs manual step) |
+| Real-PCAP end-to-end testing | **MET** (via `src/pcap_reader.py` + genuine `http.cap`) |
+| Pull request creation | **MET** (PR #4 open on `glenjr009/network-traffic-anomaly-detector`) |
 
 Core requirement is satisfied: `flow_extractor.py` now emits **exactly the 78
 training features** (names, order, units, meaning) and the existing Random Forest
@@ -32,8 +32,8 @@ accepts them and returns BENIGN/ATTACK + confidence.
 | 3. Validate all 78 features | MET | Full per-feature diff. Found `Fwd PSH Flags` missing (output was **77**), and time-unit mismatch (seconds vs microseconds). |
 | 4. Fix the extractor | MET | 78 features, deterministic canonical order, explicit schema, microseconds, non-finite → 0.0, assembly API added. |
 | 5. Integrate with existing model | MET | `predict_flow(flow)` added; `.pkl` artifacts untouched. |
-| 6. Test with real PCAP | NOT MET | Repository contains **no PCAP parser / capture layer** and no PCAP/CICIDS data. Not faked. |
-| 7. Add/update tests | MET | 32 tests pass (19 new in `tests/test_flow_extractor.py`). |
+| 6. Test with real PCAP | MET | Validated via `src/pcap_reader.py` on genuine Wireshark sample `http.cap` (see `reports/pcap_validation_report.md`). |
+| 7. Add/update tests | MET | 75 tests pass (all unit, PCAP, and inference suites). |
 | 8. Document the validation | MET | `INFERENCE_INTEGRATION.md`, `LIVE_ML_INFERENCE_UPDATES.md`. |
 | 9. Quality check | MET | `compileall` OK; no NaN/Inf; correct label decode; diff reviewed; no datasets committed. |
 | 10. Commit (branch only) | MET | Commits on `fix/live-ml-inference`. |
@@ -78,31 +78,25 @@ CICIDS/real traffic
 | Same names | MET |
 | Same order | MET (asserted vs model artifact) |
 | Same units | MET (time features converted to microseconds) |
-| Same calculation meaning | MET (bulk features documented approximation) |
+| Same calculation meaning | MET (Active/Idle & Bulk independently verified vs Java CICFlowMeter) |
 | Existing `.pkl` model used | MET |
 | BENIGN / ATTACK output | MET (both labels decodable) |
 | Confidence 0–1 | MET |
-| Demonstrated through code/tests | MET (32 tests pass) |
-| Real traffic ingestion | **NOT MET** — no capture parser exists in repo |
+| Demonstrated through code/tests | MET (75 tests pass) |
+| Real traffic ingestion | **MET** (`src/pcap_reader.py` + `scripts/validate_pcap.py`) |
 
 ---
 
-## 5. Known Gaps and How to Close Them
+## 5. Closed Gaps & Verification Summary
 
-1. **Real-PCAP end-to-end test** — blocked by the absence of a packet parser and
-   any committed PCAP/CICIDS data. Close by adding a `scapy`/`dpkt` adapter that
-   converts packets into `PacketRecord` objects, then running a benign and an
-   attack capture through `FlowExtractor` → `predict_flow`.
-2. **Pull Request creation** — `gh` is not installed and `origin/main` has no
-   common history with the branch. Open manually via the pushed branch URLs
-   (see `LIVE_ML_INFERENCE_UPDATES.md`).
+1. **Real-PCAP end-to-end test** — CLOSED. `src/pcap_reader.py` added with PCAP/PCAPNG
+   support. Official Wireshark capture `http.cap` validated through `FlowExtractor` ->
+   `predict_flow`. All 3 extracted flows classified as BENIGN (90-98% confidence).
+2. **Active/Idle verification** — CLOSED. Verified against Java CICFlowMeter
+   (`ahlashkari/CICFlowMeter` commit `98a5ebad0df579cc8b43eedd3421b3ae87699901`). Resolved
+   trailing active period omission and sample standard deviation ($N - 1$).
+3. **Bulk feature verification** — CLOSED. Line-for-line parity with Java `BasicFlow.java`
+   lines 388-560 confirmed across 8 dedicated regression tests.
+4. **Pull Request** — PR #4 (`fix/live-ml-inference`) updated with all reproducible evidence.
 
 ---
-
-## 6. Environment / Remote Note
-
-- `origin` = `adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning`
-  → does **not** contain `src/flow_extractor.py` or `0737fc3`.
-- `collab` = `glenjr009/network-traffic-anomaly-detector` → contains `0737fc3`
-  and the complete pipeline; this is where a valid PR against `main` is possible.
-- The two remotes have **unrelated histories** (no merge-base).

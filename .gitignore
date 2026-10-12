@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Packet Captures
+*.pcap
+*.pcapng
+*.cap
+
+# IDE
+.idea/

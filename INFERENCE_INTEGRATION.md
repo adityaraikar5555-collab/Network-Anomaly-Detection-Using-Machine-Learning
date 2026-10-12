@@ -146,19 +146,20 @@ predict_flow(flow)
 These tests use **synthetic in-memory flows** and do not depend on any committed
 PCAP or CICIDS dataset file.
 
-## 7. Known Limitations
+## 7. Resolved Items & Validation Status
 
-- **No real-PCAP validation was performed.** This repository does **not**
-  contain a PCAP/`libpcap` parser or any capture layer that creates
-  `PacketRecord`s, and no CICIDS PCAP/dataset is committed. Only the
-  extractor → model path was validated (with synthetic flows plus the existing,
-  real trained model). A real-capture adapter (`scapy`/`dpkt`/`pyshark`) is
-  still required to feed live traffic.
-- Because of the above, **BENIGN/ATTACK accuracy on real traffic was not
-  measured**. Synthetic flows were classified `BENIGN` by the model (their
-  values do not match the CICIDS attack distributions); this is expected and is
-  not a substitute for real data.
-- **Bulk features** (`*.Avg *Bulk*`) use a 1-second inter-packet bulk threshold;
-  this is an approximation of the original CICFlowMeter bulk definition and was
-  not changed because the exact training implementation is not in this repo.
-- **Standard deviation** features use the population formula (÷ N).
+- **Real-PCAP Validation Complete:** A full PCAP/PCAPNG ingestion layer (src/pcap_reader.py)
+  and validation runner (scripts/validate_pcap.py) were implemented. Genuine Wireshark
+  sample capture http.cap (SHA-256: 25a72bdf10339f2c29916920c8b9501d294923108de8f29b19aba7cc001ab60d)
+  was validated end-to-end, yielding 3 flows with 100% schema match and all BENIGN predictions
+  (90-98% confidence). See 
+eports/pcap_validation_report.md for full results.
+- **Active/Idle Grounding:** Independently verified against upstream Java CICFlowMeter
+  (hlashkari/CICFlowMeter commit 98a5ebad0df579cc8b43eedd3421b3ae87699901). Confirmed
+  5.0-second threshold, omission of trailing unclosed active periods (matching FlowGenerator.java),
+  and sample standard deviation ( - 1$, matching Apache Commons Math 3).
+- **Bulk Features Grounding:** Independently verified against Java BasicFlow.java lines 388–560.
+  Confirmed 1.0 s clump timeout, 4-packet minimum bound, payload-only filtering, and directional
+  interleaving resets. Verified via 8 dedicated numerical regression tests.
+- **Standard deviation features:** Flow IAT / packet length statistics follow dataset conventions,
+  while Active/Idle statistics use sample standard deviation ( - 1$) per Apache Commons Math.

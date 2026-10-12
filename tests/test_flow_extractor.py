@@ -271,101 +271,244 @@ class TestPayloadDrivenFeatures(unittest.TestCase):
         self.assertEqual(features['act_data_pkt_fwd'], 0.0)
 
 class TestBulkFeatures(unittest.TestCase):
+    """Numerical regression tests for bulk transfer calculation.
 
-    def _burst(self, count=5, payload=100, spacing=0.01, start=1000.0):
+    Authoritative reference: Java CICFlowMeter (BasicFlow.java lines 388-560).
+    Verified behaviors:
+    1. Forward bulk only (single direction burst >= 4 packets with payload > 0)
+    2. Backward bulk only (backward burst >= 4 packets with payload > 0)
+    3. Bidirectional where only forward qualifies (forward >= 4, backward < 4)
+    4. Bidirectional where both qualify
+    5. Packet count below threshold (count < 4) -> all 6 bulk features 0.0
+    6. Packet arrival after timeout (> 1.0s clump gap) -> clump resets, features 0.0
+    7. Packets without payload (payload = 0) -> ignored, do not count towards bulk
+    8. Interleaving reset (reverse direction payload packet arrives before bound)
+    """
+
+    def _burst(self, count=5, payload=100, spacing=0.01, start=1000.0, is_forward=True):
         extractor = FlowExtractor()
         t = start
+        src_ip, dst_ip = ("a", "b") if is_forward else ("b", "a")
+        src_port, dst_port = (1, 80) if is_forward else (80, 1)
+        if not is_forward:
+            # Seed the forward direction with a zero-payload handshake packet
+            extractor.add_packet(_make_packet(t - 1.0, "a", "b", 1, 80, 54, payload_length=0, syn=True))
+
         for _ in range(count):
-            extractor.add_packet(_make_packet(t, 'a', 'b', 1, 80, payload + 54, payload_length=payload, ack=True))
+            extractor.add_packet(_make_packet(t, src_ip, dst_ip, src_port, dst_port, payload + 54, payload_length=payload, ack=True))
             t += spacing
         return extractor.get_flows()[0]
 
-    def test_bulk_of_five_payload_packets(self):
-        flow = self._burst()
+    def test_scenario1_forward_bulk_only(self):
+        """Scenario 1: Forward bulk only."""
+        flow = self._burst(count=5, payload=100, spacing=0.01, is_forward=True)
         f = flow.extract_features()
-        self.assertEqual(f['Fwd Avg Bytes/Bulk'], 500.0)
-        self.assertEqual(f['Fwd Avg Packets/Bulk'], 5.0)
-        self.assertAlmostEqual(f['Fwd Avg Bulk Rate'], 12500.0, places=3)
-        self.assertEqual(f['Bwd Avg Bytes/Bulk'], 0.0)
+        self.assertEqual(f["Fwd Avg Bytes/Bulk"], 500.0)
+        self.assertEqual(f["Fwd Avg Packets/Bulk"], 5.0)
+        self.assertAlmostEqual(f["Fwd Avg Bulk Rate"], 500.0 / 0.04, places=3)
+        self.assertEqual(f["Bwd Avg Bytes/Bulk"], 0.0)
+        self.assertEqual(f["Bwd Avg Packets/Bulk"], 0.0)
+        self.assertEqual(f["Bwd Avg Bulk Rate"], 0.0)
 
-    def test_bulk_not_reached_below_bound(self):
-        flow = self._burst(count=3)
+    def test_scenario2_backward_bulk_only(self):
+        """Scenario 2: Backward bulk only."""
+        flow = self._burst(count=5, payload=100, spacing=0.01, is_forward=False)
         f = flow.extract_features()
-        self.assertEqual(f['Fwd Avg Bytes/Bulk'], 0.0)
-        self.assertEqual(f['Fwd Avg Packets/Bulk'], 0.0)
-        self.assertEqual(f['Fwd Avg Bulk Rate'], 0.0)
+        self.assertEqual(f["Fwd Avg Bytes/Bulk"], 0.0)
+        self.assertEqual(f["Fwd Avg Packets/Bulk"], 0.0)
+        self.assertEqual(f["Fwd Avg Bulk Rate"], 0.0)
+        self.assertEqual(f["Bwd Avg Bytes/Bulk"], 500.0)
+        self.assertEqual(f["Bwd Avg Packets/Bulk"], 5.0)
+        self.assertAlmostEqual(f["Bwd Avg Bulk Rate"], 500.0 / 0.04, places=3)
 
-    def test_bulk_broken_by_gap(self):
+    def test_scenario3_bidirectional_only_forward_qualifies(self):
+        """Scenario 3: Bidirectional flow where only forward qualifies for bulk."""
         extractor = FlowExtractor()
         t = 1000.0
         for _ in range(5):
-            extractor.add_packet(_make_packet(t, 'a', 'b', 1, 80, 154, payload_length=100, ack=True))
-            t += 2.0
-        f = extractor.get_flows()[0].extract_features()
-        self.assertEqual(f['Fwd Avg Bytes/Bulk'], 0.0)
-
-    def test_bulk_header_only_packets_ignored(self):
-        extractor = FlowExtractor()
-        t = 1000.0
-        for _ in range(5):
-            extractor.add_packet(_make_packet(t, 'a', 'b', 1, 80, 100, payload_length=0, ack=True))
+            extractor.add_packet(_make_packet(t, "a", "b", 1, 80, 154, payload_length=100, ack=True))
+            t += 0.01
+        t += 2.0
+        for _ in range(2):
+            extractor.add_packet(_make_packet(t, "b", "a", 80, 1, 154, payload_length=100, ack=True))
             t += 0.01
         f = extractor.get_flows()[0].extract_features()
-        self.assertEqual(f['Fwd Avg Bytes/Bulk'], 0.0)
+        self.assertEqual(f["Fwd Avg Bytes/Bulk"], 500.0)
+        self.assertEqual(f["Fwd Avg Packets/Bulk"], 5.0)
+        self.assertAlmostEqual(f["Fwd Avg Bulk Rate"], 500.0 / 0.04, places=3)
+        self.assertEqual(f["Bwd Avg Bytes/Bulk"], 0.0)
+        self.assertEqual(f["Bwd Avg Packets/Bulk"], 0.0)
+        self.assertEqual(f["Bwd Avg Bulk Rate"], 0.0)
 
-    def test_bulk_interleaving_resets_forward(self):
+    def test_scenario4_bidirectional_both_qualify(self):
+        """Scenario 4: Bidirectional flow where both directions qualify for bulk."""
+        extractor = FlowExtractor()
+        t = 1000.0
+        for _ in range(4):
+            extractor.add_packet(_make_packet(t, "a", "b", 1, 80, 154, payload_length=100, ack=True))
+            t += 0.01
+        t += 2.0
+        for _ in range(4):
+            extractor.add_packet(_make_packet(t, "b", "a", 80, 1, 154, payload_length=200, ack=True))
+            t += 0.02
+        f = extractor.get_flows()[0].extract_features()
+        self.assertEqual(f["Fwd Avg Bytes/Bulk"], 400.0)
+        self.assertEqual(f["Fwd Avg Packets/Bulk"], 4.0)
+        self.assertAlmostEqual(f["Fwd Avg Bulk Rate"], 400.0 / 0.03, places=3)
+        self.assertEqual(f["Bwd Avg Bytes/Bulk"], 800.0)
+        self.assertEqual(f["Bwd Avg Packets/Bulk"], 4.0)
+        self.assertAlmostEqual(f["Bwd Avg Bulk Rate"], 800.0 / 0.06, places=3)
+
+    def test_scenario5_below_threshold_bulk_bound(self):
+        """Scenario 5: Flow where packet count is below threshold (3 < BULK_BOUND 4)."""
+        flow = self._burst(count=3, payload=100, spacing=0.01)
+        f = flow.extract_features()
+        self.assertEqual(f["Fwd Avg Bytes/Bulk"], 0.0)
+        self.assertEqual(f["Fwd Avg Packets/Bulk"], 0.0)
+        self.assertEqual(f["Fwd Avg Bulk Rate"], 0.0)
+        self.assertEqual(f["Bwd Avg Bytes/Bulk"], 0.0)
+        self.assertEqual(f["Bwd Avg Packets/Bulk"], 0.0)
+        self.assertEqual(f["Bwd Avg Bulk Rate"], 0.0)
+
+    def test_scenario6_clump_gap_timeout_resets(self):
+        """Scenario 6: Flow where packet arrives after timeout (> 1.0s gap)."""
+        extractor = FlowExtractor()
+        t = 1000.0
+        extractor.add_packet(_make_packet(t, "a", "b", 1, 80, 154, payload_length=100, ack=True))
+        t += 0.01
+        extractor.add_packet(_make_packet(t, "a", "b", 1, 80, 154, payload_length=100, ack=True))
+        t += 2.0
+        extractor.add_packet(_make_packet(t, "a", "b", 1, 80, 154, payload_length=100, ack=True))
+        t += 0.01
+        extractor.add_packet(_make_packet(t, "a", "b", 1, 80, 154, payload_length=100, ack=True))
+        f = extractor.get_flows()[0].extract_features()
+        self.assertEqual(f["Fwd Avg Bytes/Bulk"], 0.0)
+        self.assertEqual(f["Fwd Avg Packets/Bulk"], 0.0)
+        self.assertEqual(f["Fwd Avg Bulk Rate"], 0.0)
+
+    def test_scenario7_header_only_packets_ignored(self):
+        """Scenario 7: Packets without payload (payload = 0) do not participate in bulk."""
+        extractor = FlowExtractor()
+        t = 1000.0
+        for _ in range(10):
+            extractor.add_packet(_make_packet(t, "a", "b", 1, 80, 54, payload_length=0, ack=True))
+            t += 0.01
+        f = extractor.get_flows()[0].extract_features()
+        self.assertEqual(f["Fwd Avg Bytes/Bulk"], 0.0)
+        self.assertEqual(f["Fwd Avg Packets/Bulk"], 0.0)
+        self.assertEqual(f["Fwd Avg Bulk Rate"], 0.0)
+
+    def test_scenario8_interleaving_reverse_direction_resets(self):
+        """Scenario 8: Interleaving reset where reverse direction payload packet resets clump."""
         extractor = FlowExtractor()
         for i in range(3):
-            extractor.add_packet(_make_packet(1000.0 + i * 0.01, 'a', 'b', 1, 80, 154, payload_length=100, ack=True))
-        extractor.add_packet(_make_packet(1000.03, 'b', 'a', 80, 1, 154, payload_length=100, ack=True))
-        extractor.add_packet(_make_packet(1000.04, 'a', 'b', 1, 80, 154, payload_length=100, ack=True))
+            extractor.add_packet(_make_packet(1000.0 + i * 0.01, "a", "b", 1, 80, 154, payload_length=100, ack=True))
+        extractor.add_packet(_make_packet(1000.03, "b", "a", 80, 1, 154, payload_length=100, ack=True))
+        extractor.add_packet(_make_packet(1000.04, "a", "b", 1, 80, 154, payload_length=100, ack=True))
         f = extractor.get_flows()[0].extract_features()
-        self.assertEqual(f['Fwd Avg Bytes/Bulk'], 0.0)
+        self.assertEqual(f["Fwd Avg Bytes/Bulk"], 0.0)
+        self.assertEqual(f["Fwd Avg Packets/Bulk"], 0.0)
+        self.assertEqual(f["Fwd Avg Bulk Rate"], 0.0)
+        self.assertEqual(f["Bwd Avg Bytes/Bulk"], 0.0)
+        self.assertEqual(f["Bwd Avg Packets/Bulk"], 0.0)
+        self.assertEqual(f["Bwd Avg Bulk Rate"], 0.0)
 
-
-    def test_bulk_backward_only(self):
-        extractor = FlowExtractor()
-        t = 1000.0
-        extractor.add_packet(_make_packet(t, 'a', 'b', 1, 80, 60, payload_length=0, ack=True))
-        t += 0.001
-        for _ in range(5):
-            extractor.add_packet(_make_packet(t, 'b', 'a', 80, 1, 154, payload_length=100, ack=True))
-            t += 0.01
-        f = extractor.get_flows()[0].extract_features()
-        self.assertEqual(f['Bwd Avg Bytes/Bulk'], 500.0)
-        self.assertEqual(f['Bwd Avg Packets/Bulk'], 5.0)
-        self.assertAlmostEqual(f['Bwd Avg Bulk Rate'], 12500.0, places=3)
 
 class TestActiveIdleFeatures(unittest.TestCase):
+    """Numerical regression tests for Active and Idle time calculations.
+
+    Authoritative reference: Java CICFlowMeter (BasicFlow.java / FlowGenerator.java).
+    Verified behaviors:
+    1. Single-packet flow -> all Active/Idle stats are 0.0.
+    2. Multi-packet flow with no idle gaps (> 5.0s) -> all Active/Idle stats are 0.0.
+    3. Multi-packet flow with one idle gap -> preceding active period and idle gap recorded;
+       trailing active period discarded upon flow termination.
+    4. Multi-packet flow with multiple idle gaps -> multiple active and idle periods recorded.
+    5. Zero-duration flow -> all Active/Idle stats are 0.0.
+    6. Sample standard deviation calculation with Bessel's correction (N - 1) matching
+       Apache Commons Math 3 SummaryStatistics.
+    7. Microsecond unit scaling verification (1s = 1,000,000 us).
+    """
 
     def _flow(self, timestamps):
         extractor = FlowExtractor()
         for t in timestamps:
-            extractor.add_packet(_make_packet(t, 'a', 'b', 1, 80, 100, ack=True))
+            extractor.add_packet(_make_packet(t, "a", "b", 1, 80, 100, ack=True))
         return extractor.get_flows()[0].extract_features()
 
-    def test_single_active_period(self):
-        f = self._flow([1000.0, 1001.0, 1002.0])
-        self.assertAlmostEqual(f['Active Max'], 2_000_000.0)
-        self.assertAlmostEqual(f['Active Mean'], 2_000_000.0)
-        self.assertAlmostEqual(f['Active Min'], 2_000_000.0)
-        self.assertEqual(f['Active Std'], 0.0)
-        self.assertEqual(f['Idle Max'], 0.0)
+    def test_single_packet_flow_zero_active_idle(self):
+        f = self._flow([1000.0])
+        self.assertEqual(f["Active Mean"], 0.0)
+        self.assertEqual(f["Active Std"], 0.0)
+        self.assertEqual(f["Active Max"], 0.0)
+        self.assertEqual(f["Active Min"], 0.0)
+        self.assertEqual(f["Idle Mean"], 0.0)
+        self.assertEqual(f["Idle Std"], 0.0)
+        self.assertEqual(f["Idle Max"], 0.0)
+        self.assertEqual(f["Idle Min"], 0.0)
 
-    def test_gap_above_threshold_creates_idle(self):
-        f = self._flow([1000.0, 1001.0, 1010.0])
-        self.assertAlmostEqual(f['Active Max'], 1_000_000.0)
-        self.assertAlmostEqual(f['Idle Max'], 9_000_000.0)
+    def test_zero_duration_multi_packet_zero_active_idle(self):
+        f = self._flow([1000.0, 1000.0, 1000.0])
+        self.assertEqual(f["Active Mean"], 0.0)
+        self.assertEqual(f["Active Std"], 0.0)
+        self.assertEqual(f["Active Max"], 0.0)
+        self.assertEqual(f["Active Min"], 0.0)
+        self.assertEqual(f["Idle Mean"], 0.0)
+        self.assertEqual(f["Idle Std"], 0.0)
+        self.assertEqual(f["Idle Max"], 0.0)
+        self.assertEqual(f["Idle Min"], 0.0)
+
+    def test_flow_without_idle_gaps_zero_active_idle(self):
+        f = self._flow([1000.0, 1001.0, 1002.0, 1005.0])
+        self.assertEqual(f["Active Mean"], 0.0)
+        self.assertEqual(f["Active Std"], 0.0)
+        self.assertEqual(f["Active Max"], 0.0)
+        self.assertEqual(f["Active Min"], 0.0)
+        self.assertEqual(f["Idle Mean"], 0.0)
+        self.assertEqual(f["Idle Std"], 0.0)
+        self.assertEqual(f["Idle Max"], 0.0)
+        self.assertEqual(f["Idle Min"], 0.0)
 
     def test_gap_exactly_threshold_stays_active(self):
         f = self._flow([1000.0, 1005.0])
-        self.assertAlmostEqual(f['Active Max'], 5_000_000.0)
-        self.assertEqual(f['Idle Max'], 0.0)
+        self.assertEqual(f["Active Mean"], 0.0)
+        self.assertEqual(f["Active Max"], 0.0)
+        self.assertEqual(f["Idle Max"], 0.0)
 
-    def test_gap_just_above_threshold_splits(self):
-        f = self._flow([1000.0, 1005.001])
-        self.assertEqual(f['Active Max'], 0.0)
-        self.assertAlmostEqual(f['Idle Max'], 5_001_000.0, delta=1.0)
+    def test_single_idle_gap_records_preceding_active(self):
+        f = self._flow([1000.0, 1002.0, 1010.0])
+        self.assertAlmostEqual(f["Active Mean"], 2_000_000.0)
+        self.assertAlmostEqual(f["Active Max"], 2_000_000.0)
+        self.assertAlmostEqual(f["Active Min"], 2_000_000.0)
+        self.assertEqual(f["Active Std"], 0.0)
+        self.assertAlmostEqual(f["Idle Mean"], 8_000_000.0)
+        self.assertAlmostEqual(f["Idle Max"], 8_000_000.0)
+        self.assertAlmostEqual(f["Idle Min"], 8_000_000.0)
+        self.assertEqual(f["Idle Std"], 0.0)
+
+    def test_single_idle_gap_with_zero_duration_preceding_active(self):
+        f = self._flow([1000.0, 1008.0])
+        self.assertEqual(f["Active Mean"], 0.0)
+        self.assertEqual(f["Active Max"], 0.0)
+        self.assertAlmostEqual(f["Idle Mean"], 8_000_000.0)
+        self.assertAlmostEqual(f["Idle Max"], 8_000_000.0)
+
+    def test_multiple_idle_gaps_and_sample_std(self):
+        f = self._flow([1000.0, 1002.0, 1010.0, 1014.0, 1024.0])
+        self.assertAlmostEqual(f["Active Mean"], 3_000_000.0)
+        self.assertAlmostEqual(f["Active Max"], 4_000_000.0)
+        self.assertAlmostEqual(f["Active Min"], 2_000_000.0)
+        self.assertAlmostEqual(f["Active Std"], (2.0e12) ** 0.5, places=3)
+
+        self.assertAlmostEqual(f["Idle Mean"], 9_000_000.0)
+        self.assertAlmostEqual(f["Idle Max"], 10_000_000.0)
+        self.assertAlmostEqual(f["Idle Min"], 8_000_000.0)
+        self.assertAlmostEqual(f["Idle Std"], (2.0e12) ** 0.5, places=3)
+
+    def test_microsecond_unit_scaling(self):
+        f = self._flow([1000.0, 1001.5, 1008.0])
+        self.assertAlmostEqual(f["Active Mean"], 1_500_000.0)
+        self.assertAlmostEqual(f["Idle Mean"], 6_500_000.0)
 
 class TestFeatureSanitization(unittest.TestCase):
 

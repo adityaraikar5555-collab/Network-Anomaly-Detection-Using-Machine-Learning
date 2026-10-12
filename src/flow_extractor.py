@@ -1160,13 +1160,6 @@ class NetworkFlow:
 
             previous = packet.timestamp
 
-        # Close the final active period (microseconds).
-        final_active_duration = (
-            previous - active_start
-        ) * MICROSECONDS_PER_SECOND
-        if final_active_duration > 0:
-            active_periods.append(final_active_duration)
-
         return active_periods, idle_periods
 
     @staticmethod
@@ -1186,10 +1179,11 @@ class NetworkFlow:
 
         else:
 
+            # Apache Commons Math SummaryStatistics sample std (N - 1)
             variance = sum(
                 (value - mean) ** 2
                 for value in values
-            ) / len(values)
+            ) / (len(values) - 1)
 
             std = variance ** 0.5
 

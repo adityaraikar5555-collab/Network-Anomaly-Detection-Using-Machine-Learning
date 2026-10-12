@@ -1,0 +1,52 @@
+{
+  "pcap": "http.cap",
+  "packet_count": 43,
+  "flow_count": 3,
+  "skipped_unsupported": 0,
+  "skipped_malformed": 0,
+  "schema_ok": true,
+  "schema_errors": [],
+  "flows": [
+    {
+      "flow_index": 0,
+      "src": "145.254.160.237:3372",
+      "dst": "65.208.228.223:80",
+      "protocol": 6,
+      "packets": 34,
+      "fwd_packets": 16,
+      "bwd_packets": 18,
+      "prediction": "BENIGN",
+      "confidence": 0.9011,
+      "model": "cicids_random_forest"
+    },
+    {
+      "flow_index": 1,
+      "src": "145.254.160.237:3009",
+      "dst": "145.253.2.203:53",
+      "protocol": 17,
+      "packets": 2,
+      "fwd_packets": 1,
+      "bwd_packets": 1,
+      "prediction": "BENIGN",
+      "confidence": 0.9819,
+      "model": "cicids_random_forest"
+    },
+    {
+      "flow_index": 2,
+      "src": "145.254.160.237:3371",
+      "dst": "216.239.59.99:80",
+      "protocol": 6,
+      "packets": 7,
+      "fwd_packets": 3,
+      "bwd_packets": 4,
+      "prediction": "BENIGN",
+      "confidence": 0.9439,
+      "model": "cicids_random_forest"
+    }
+  ],
+  "label_counts": {
+    "BENIGN": 3,
+    "ATTACK": 0
+  },
+  "errors": []
+}

@@ -82,6 +82,7 @@ def _import_scapy():
 
         with contextlib.redirect_stderr(io.StringIO()):
             from scapy.layers.inet import IP, TCP, UDP  # type: ignore
+            from scapy.layers.l2 import Ether  # type: ignore
             from scapy.utils import PcapNgReader, PcapReader  # type: ignore
     except Exception as exc:  # pragma: no cover - only without scapy
         if isinstance(exc, (ImportError, ModuleNotFoundError)):
