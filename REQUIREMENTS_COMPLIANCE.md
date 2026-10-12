@@ -33,7 +33,7 @@ accepts them and returns BENIGN/ATTACK + confidence.
 | 4. Fix the extractor | MET | 78 features, deterministic canonical order, explicit schema, microseconds, non-finite → 0.0, assembly API added. |
 | 5. Integrate with existing model | MET | `predict_flow(flow)` added; `.pkl` artifacts untouched. |
 | 6. Test with real PCAP | MET | Validated via `src/pcap_reader.py` on genuine Wireshark sample `http.cap` (see `reports/pcap_validation_report.md`). |
-| 7. Add/update tests | MET | 81 tests pass (all unit, PCAP, and inference suites). |
+| 7. Add/update tests | MET | 88 tests pass (unit, PCAP, inference, and Java-reference parity suites). |
 | 8. Document the validation | MET | `INFERENCE_INTEGRATION.md`, `LIVE_ML_INFERENCE_UPDATES.md`. |
 | 9. Quality check | MET | `compileall` OK; no NaN/Inf; correct label decode; diff reviewed; no datasets committed. |
 | 10. Commit (branch only) | MET | Commits on `fix/live-ml-inference`. |
@@ -78,11 +78,11 @@ CICIDS/real traffic
 | Same names | MET |
 | Same order | MET (asserted vs model artifact) |
 | Same units | MET (time features converted to microseconds) |
-| Same calculation meaning | MET (Active/Idle & Bulk verified against Java CICFlowMeter sources + regression tests) |
+| Same calculation meaning | MET (Active/Idle matches Java CICFlowMeter at runtime; Bulk arithmetic matches, direction routing deviation documented) |
 | Existing `.pkl` model used | MET |
 | BENIGN / ATTACK output | MET (both labels decodable) |
 | Confidence 0–1 | MET |
-| Demonstrated through code/tests | MET (81 tests pass) |
+| Demonstrated through code/tests | MET (88 tests pass) |
 | Real traffic ingestion | **MET** (`src/pcap_reader.py` + `scripts/validate_pcap.py`) |
 
 ---
@@ -92,12 +92,18 @@ CICIDS/real traffic
 1. **Real-PCAP end-to-end test** — CLOSED. `src/pcap_reader.py` added with PCAP/PCAPNG
    support. Official Wireshark capture `http.cap` validated through `FlowExtractor` ->
    `predict_flow`. All 3 extracted flows classified as BENIGN (90-98% confidence).
-2. **Active/Idle verification** — CLOSED. Checked against Java CICFlowMeter sources
-   (`ahlashkari/CICFlowMeter` commit `98a5ebad0df579cc8b43eedd3421b3ae87699901`); resolved
-   the trailing active period omission and sample standard deviation ($N - 1$). This is
-   **source inspection** (no JVM was available), backed by 7 regression tests.
-3. **Bulk feature verification** — CLOSED. Semantics checked against Java `BasicFlow.java`
-   and covered by 8 dedicated regression tests.
+2. **Active/Idle verification** — CLOSED (runtime). The unmodified pinned Java sources
+   (`ahlashkari/CICFlowMeter` commit `98a5ebad0df579cc8b43eedd3421b3ae87699901`) are
+   compiled and executed with a real JDK via `scripts/java_reference_parity.py`; all
+   eight Active/Idle features match to 1e-9 on deterministic scenarios. Evidence in
+   `reports/java_reference_parity.json`; pinned by `tests/test_reference_parity.py`.
+3. **Bulk feature verification** — CLOSED (runtime). On a single-direction flow our
+   forward bulk triple equals the Java reference's backward triple element-wise
+   (`600 / 6 / 1200`), confirming identical arithmetic. The reference's
+   `this.src == packet.getSrc()` direction check is always false, so its forward bulk
+   is structurally zero; our extractor implements the intended per-direction semantics
+   (interleaved flow: reference `800 / 6 / 1600` vs ours `0`). Deviation documented in
+   `INFERENCE_INTEGRATION.md` §8 and covered by regression tests.
 4. **Pull Request** — PR #4 (`fix/live-ml-inference`) updated with all reproducible evidence.
 
 ---

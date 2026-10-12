@@ -143,7 +143,7 @@ predict_flow(flow)
 
 ```bash
 python -m unittest discover -s tests
-# Ran 81 tests ... OK
+# Ran 88 tests ... OK
 ```
 
 - `tests/test_flow_extractor.py` (49 tests): exactly 78 features; names match the
@@ -160,9 +160,13 @@ python -m unittest discover -s tests
   filtering, malformed counting, `max_packets`, bidirectional grouping, capture
   error handling, end-to-end `validate_capture`, capture-metadata embedding,
   Markdown/JSON consistency, and PCAPNG support.
+- `tests/test_reference_parity.py` (7 tests): pins Active/Idle and bulk features
+  to real Java reference output recorded in `reports/java_reference_parity.json`.
 
 These tests use **synthetic in-memory flows** and do not depend on any committed
-PCAP or CICIDS dataset file.
+PCAP or CICIDS dataset file. `tests/test_reference_parity.py` additionally
+depends on the committed Java-reference evidence artifact (not on a JDK at test
+time).
 
 ## 7. Real-Capture Validation
 
@@ -176,36 +180,67 @@ schema match, all `BENIGN` (90.11%–98.19% confidence). Both
 `reports/pcap_validation_report.json` and `reports/pcap_validation_report.md`
 are generated from the same result object.
 
-## 8. Reference Verification (Source Inspection)
+## 8. Reference Verification (Runtime, Java)
 
-Active/Idle and bulk-transfer semantics were checked by reading the pinned
-upstream Java CICFlowMeter sources (`ahlashkari/CICFlowMeter` commit
-`98a5ebad0df579cc8b43eedd3421b3ae87699901`). **No JVM was available, so this is
-source inspection, not confirmed runtime byte-parity.**
+Active/Idle and bulk-transfer semantics were validated **numerically at
+runtime** against the pinned upstream Java CICFlowMeter sources
+(`ahlashkari/CICFlowMeter` commit
+`98a5ebad0df579cc8b43eedd3421b3ae87699901`). The unmodified sources
+`BasicFlow.java`, `BasicPacketInfo.java`, `IdGenerator.java` and
+`DateFormatter.java` are compiled with a real JDK (Temurin 21) together with
+`scripts/java_reference_parity/ParityHarness.java`, which drives
+`BasicFlow.updateActiveIdleTime` / `BasicFlow.addPacket` on deterministic
+scenarios and reads the feature getters. Packet capture / jnetpcap decoding is
+**not** exercised — this validates the reference *feature arithmetic*, not its
+decoder.
 
-- **Active/Idle** (`BasicFlow.updateActiveIdleTime`, driven from
-  `FlowGenerator.addPacket`): intra-flow active threshold **5.0 s**; sample
-  standard deviation (N−1, Apache Commons Math); the trailing active period at
-  flow termination is **not** recorded upstream (the `endActiveIdleTime` call is
+Reproduce and inspect:
+
+```
+python scripts/java_reference_parity.py --json reports/java_reference_parity.json
+```
+
+Evidence: `reports/java_reference_parity.json` (reference commit, JDK version,
+per-scenario Java vs Python values, and pass/fail checks).
+`tests/test_reference_parity.py` pins the current implementation to that
+recorded output.
+
+**Findings**
+
+- **Active/Idle — exact numeric match.** All eight Active/Idle features agree
+  with the Java reference to 1e-9 on every scenario. Confirmed semantics:
+  intra-flow active threshold **5.0 s** (`ACTIVE_TIMEOUT`); sample standard
+  deviation (N−1, Apache Commons Math); the trailing active period at flow
+  termination is **not** recorded upstream (the `endActiveIdleTime` call is
   commented out).
-- **Bulk** (`BasicFlow` bulk state machine): payload-only participation,
-  **1.0 s** clump timeout, `BULK_BOUND = 4`, and directional interleaving reset.
-- **Known upstream defect:** bulk direction is decided with
-  `this.src == packet.getSrc()` (reference equality on a fresh `byte[]`), which is
-  always `false` in that revision, so forward bulk never accumulates. Our
-  extractor implements the **intended** per-direction behaviour instead.
-- **Length semantics:** upstream length statistics use the L4 payload bytes and
-  the TCP header length only, whereas this extractor uses full frame length and
-  IP+TCP header lengths (consistent with CICIDS-2017 CSV semantics).
-- **Numeric emphasis:** our bulk averages use floating-point division where the
-  reference uses integer division/truncation.
+- **Bulk — arithmetic identical, direction routing deviates.** The reference
+  state machine (payload-only participation, **1.0 s** clump timeout,
+  `BULK_BOUND = 4`, directional interleaving reset) reconciles exactly with our
+  implementation: on a single-direction flow our *forward* bulk triple equals
+  the reference's *backward* triple element-wise (`600 / 6 / 1200`).
+- **Confirmed upstream defect:** `updateFlowBulk` selects direction with
+  `this.src == packet.getSrc()`, a reference comparison against a fresh
+  `Arrays.copyOf` array, which is **always false** in this revision. At runtime
+  the reference therefore reports forward bulk `0 / 0 / 0` and accumulates
+  *every* payload packet into the backward counters. An interleaved flow makes
+  the reference synthesise a spurious backward bulk (`800 / 6 / 1600`) while
+  correct per-direction semantics (ours) yield no bulk. Our extractor
+  implements the **intended** per-direction behaviour instead.
+- **Remaining deviations (documented, not hidden):** upstream length statistics
+  use L4 payload bytes and the TCP header length only, whereas this extractor
+  uses full frame length and IP+TCP header lengths (consistent with CICIDS-2017
+  CSV semantics); and our bulk averages use floating-point division where the
+  reference truncates via integer division.
 
 ## 9. Known Limitations
 
 - Live-interface sniffing is **not** implemented; only saved capture files are
   read.
-- Reference verification is by source inspection only (no JVM executed), so exact
-  runtime parity with the Java tool is not claimed.
+- Reference verification executes the reference *feature code* in a JVM but does
+  not exercise the reference packet decoder (libpcap/jnetpcap), so parity with
+  the full Java tool on real captures is not claimed. Active/Idle matches
+  exactly; bulk direction intentionally follows the documented intended
+  semantics rather than the upstream routing defect.
 - BENIGN/ATTACK accuracy on real traffic was **not** measured against labelled
   data; `http.cap` contains only normal traffic, so all flows being `BENIGN` is
   expected but is not an accuracy measurement.

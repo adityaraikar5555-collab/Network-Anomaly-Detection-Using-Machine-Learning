@@ -19,9 +19,10 @@ This PR achieves full end-to-end feature compatibility and real-traffic validati
 - **Inference Integration:** Added `predict_flow(flow)` in `src/prediction.py`.
 
 #### 2. Authoritative Java CICFlowMeter Verification
-- **Upstream Reference:** Checked against the authoritative Java `ahlashkari/CICFlowMeter` sources at commit `98a5ebad0df579cc8b43eedd3421b3ae87699901` (`BasicFlow.java` & `FlowGenerator.java`). This is **source inspection** — no JVM was available, so exact runtime byte-parity is not claimed.
-- **Active/Idle Calculation:** Resolved trailing active period discrepancy. In `FlowGenerator.java` (line 105), `flow.endActiveIdleTime` is commented out; thus unclosed active periods upon flow termination are not recorded. Standard deviation aligns with Apache Commons Math 3 sample standard deviation ($N - 1$).
-- **Bulk Calculation:** Semantics matched against `BasicFlow.java`. Confirmed payload filtering (`payload > 0`), 1.0 s clump gap timeout, 4-packet minimum bulk bound (`BULK_BOUND = 4`), and reverse-direction interleaving resets. Note: upstream direction selection has a latent `byte[]` reference-equality defect; our extractor implements the intended per-direction behaviour.
+- **Upstream Reference:** Validated against the authoritative Java `ahlashkari/CICFlowMeter` feature sources at commit `98a5ebad0df579cc8b43eedd3421b3ae87699901`. The unmodified `BasicFlow.java`, `BasicPacketInfo.java`, `IdGenerator.java` and `DateFormatter.java` are compiled with a real JDK (Temurin 21) and executed via `scripts/java_reference_parity.py` on deterministic scenarios.
+- **Active/Idle Calculation (runtime match):** All eight Active/Idle features agree with the Java reference to 1e-9. In `FlowGenerator.java` (line 105), `flow.endActiveIdleTime` is commented out, so unclosed active periods at flow termination are not recorded; standard deviation follows Apache Commons Math 3 sample standard deviation ($N - 1$).
+- **Bulk Calculation (runtime comparison):** On a single-direction flow our forward bulk triple equals the reference's backward triple element-wise (`600 / 6 / 1200`), confirming identical arithmetic (payload filtering, 1.0 s clump gap, `BULK_BOUND = 4`, interleaving reset). The reference's direction check `this.src == packet.getSrc()` is a `byte[]` reference comparison that is **always false** in this revision, so its forward bulk is structurally `0 / 0 / 0`; an interleaved flow makes it synthesise a spurious backward bulk (`800 / 6 / 1600`). Our extractor implements the intended per-direction behaviour.
+- **Evidence:** `reports/java_reference_parity.json` (reference commit, JDK version, per-scenario Java vs Python values, pass/fail checks); pinned by `tests/test_reference_parity.py`.
 
 #### 3. Real PCAP/PCAPNG Ingestion & Validation
 - **Ingestion Adapter:** Implemented `src/pcap_reader.py` supporting classic libpcap (microsecond/nanosecond, big/little endian) and PCAPNG files without external C libraries (`scapy`).
@@ -37,14 +38,14 @@ This PR achieves full end-to-end feature compatibility and real-traffic validati
 - **Feature Count:** Exactly 78 ✅
 - **Feature Names & Order:** 100% match vs `model.feature_names_in_` ✅
 - **Time Units:** Microseconds ($10^6$) ✅
-- **Active/Idle Grounding:** Checked vs Java CICFlowMeter sources + regression tests ✅
-- **Bulk Calculation:** Checked vs Java `BasicFlow.java` semantics (8 regression scenarios) ✅
+- **Active/Idle Grounding:** Runtime match vs Java CICFlowMeter to 1e-9 ✅
+- **Bulk Calculation:** Runtime comparison vs Java `BasicFlow` (arithmetic identical; routing deviation documented) ✅
 - **Genuine PCAP Ingestion:** 43 packets, 3 flows, 0 errors ✅
 - **Model Predictions on Real PCAP:** 3/3 BENIGN (avg confidence 94.23%) ✅
-- **Test Suite:** **81 tests pass** (`python -m unittest discover -s tests`) ✅
+- **Test Suite:** **88 tests pass** (`python -m unittest discover -s tests`) ✅
 
 ```
-Ran 81 tests in 3.456s
+Ran 88 tests in 3.254s
 OK
 ```
 
@@ -55,6 +56,9 @@ OK
 ```powershell
 # Run full unit and regression test suite
 python -m unittest discover tests -v
+
+# Validate features against the pinned Java CICFlowMeter reference (requires JDK)
+python scripts/java_reference_parity.py --json reports/java_reference_parity.json
 
 # Run real Wireshark PCAP validation (writes both reports from one result object)
 python scripts/validate_pcap.py --pcap http.cap --model models/cicids_anomaly_model.pkl --encoder models/cicids_label_encoder.pkl --json reports/pcap_validation_report.json --markdown reports/pcap_validation_report.md
@@ -73,7 +77,10 @@ REQUIREMENTS_COMPLIANCE.md      (updated - 100% requirements met)
 PR_DESCRIPTION.md               (updated)
 reports/pcap_validation_report.md (new - full reproducible report)
 reports/pcap_validation_report.json (new - validation execution payload)
+reports/java_reference_parity.json (new - real Java vs Python feature evidence)
 scripts/compare_cicflowmeter.py (diagnostic comparator)
+scripts/java_reference_parity.py (compiles & runs pinned Java reference, compares features)
+scripts/java_reference_parity/  (Java harness + deterministic scenarios)
 scripts/validate_pcap.py        (PCAP inference validation runner)
 src/cicids_features.py          (canonical 78-feature schema)
 src/flow_extractor.py           (fixed Active/Idle & Bulk features)
@@ -82,4 +89,5 @@ src/prediction.py               (flow inference integration)
 tests/test_flow_extractor.py    (numerical regression & bulk/active-idle test suites)
 tests/test_pcap_reader.py       (PCAP parsing unit tests)
 tests/test_prediction.py        (prediction validation tests)
+tests/test_reference_parity.py  (feature parity pinned to recorded Java output)
 ```

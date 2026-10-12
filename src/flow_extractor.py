@@ -896,6 +896,18 @@ class NetworkFlow:
         float seconds). ``CLUMP_TIMEOUT`` and ``BULK_BOUND`` are identical to
         the reference. A ``0`` timestamp is used as the "unset" sentinel,
         exactly as in the reference (which assumes epoch timestamps != 0).
+
+        Parity note: the bulk arithmetic was compared at runtime against the
+        unmodified Java CICFlowMeter ``BasicFlow`` (pinned commit
+        ``98a5ebad0df579cc8b43eedd3421b3ae87699901``). On a single-direction
+        flow our forward triple equals the reference's backward triple
+        element-wise, confirming identical arithmetic. The reference selects
+        direction with ``this.src == packet.getSrc()`` (reference equality on a
+        fresh ``byte[]``), which is always ``false`` in that revision, so its
+        forward bulk is structurally zero and every payload packet is routed to
+        the backward counters. This implementation intentionally keeps the
+        per-direction semantics; see ``scripts/java_reference_parity.py`` and
+        ``reports/java_reference_parity.json``.
         """
 
         state = {
@@ -1121,8 +1133,12 @@ class NetworkFlow:
         populates its active/idle lists (its ``latest_timestamp`` is updated
         before the gap check, so the gap is always <= 0). It therefore emits
         all-zero Active/Idle features and cannot serve as ground truth here.
-        This implementation follows the documented CICFlowMeter constant
-        semantics and is marked **unverified** for exact parity in the docs.
+        This implementation was instead compared numerically against the
+        unmodified Java CICFlowMeter ``BasicFlow`` sources (pinned commit
+        ``98a5ebad0df579cc8b43eedd3421b3ae87699901``) executed in a JVM: all
+        eight Active/Idle features match exactly. See
+        ``scripts/java_reference_parity.py`` and
+        ``reports/java_reference_parity.json``.
         """
 
         if len(self.packets) < 2:

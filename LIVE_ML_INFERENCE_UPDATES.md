@@ -116,11 +116,11 @@ Documents the canonical schema, units, pipeline, prediction output, tests and li
 | Feature names | **MATCH** |
 | Feature order | **MATCH** (asserted vs shared schema *and* `model.feature_names_in_`) |
 | Units | **FIXED** — time features now microseconds; rates per-second |
-| Calculation logic | MATCH — bulk follows the reference state machine; std uses sample (N−1) |
+| Calculation logic | MATCH — Active/Idle matches Java reference at runtime; bulk arithmetic matches, direction routing deviation documented |
 | Model inference | **PASS** — accepts extracted vector/dict |
 | Confidence | **PASS** — ∈ [0.0, 1.0] |
 | Prediction labels | ∈ {BENIGN, ATTACK}; both labels decodable |
-| Test suite | **PASS — 81 tests** |
+| Test suite | **PASS — 88 tests** |
 
 Example (real model, synthetic benign-like flow):
 
@@ -134,11 +134,13 @@ Example (real model, synthetic benign-like flow):
 
 ```bash
 python -m unittest discover -s tests
-# Ran 81 tests ... OK
+# Ran 88 tests ... OK
 ```
 
 - `tests/test_prediction.py` (13 tests) and `tests/test_pcap_reader.py` (19 tests)
   also pass.
+- `tests/test_reference_parity.py` (7 tests) pins Active/Idle and bulk behaviour to
+  real Java reference output in `reports/java_reference_parity.json`.
 - `tests/test_flow_extractor.py` (49 tests): exactly 78 features; names match;
   order matches schema **and** model artifact; all numeric; no NaN/Inf; model
   accepts vector/dict; prediction ∈ {BENIGN, ATTACK}; confidence ∈ [0,1];
@@ -152,9 +154,12 @@ python -m unittest discover -s tests
 
 - Live-interface sniffing is **not** implemented; only saved capture files are
   read (`src/pcap_reader.py` + `scripts/validate_pcap.py`).
-- Reference verification of Active/Idle and bulk is by **source inspection** of
-  the pinned Java CICFlowMeter commit; no JVM was available, so exact runtime
-  parity is not claimed.
+- Reference verification compiles and executes the pinned Java CICFlowMeter
+  **feature code** in a JVM (via `scripts/java_reference_parity.py`). Active/Idle
+  matches numerically; bulk arithmetic matches but direction routing intentionally
+  follows the intended per-direction semantics rather than the reference's
+  `byte[]` reference-equality defect. The reference's libpcap/jnetpcap decoder is
+  not exercised.
 - BENIGN/ATTACK **accuracy was not measured**: `http.cap` is normal traffic, so
   all flows classifying as BENIGN is expected, not an accuracy result.
 - Bulk features follow the reference state machine (1.0 s clump timeout,
@@ -175,10 +180,14 @@ src/prediction.py                   (modified - predict_flow, re-exported schema
 src/pcap_reader.py                  (new - PCAP/PCAPNG ingestion + report rendering)
 scripts/validate_pcap.py            (new - end-to-end capture validation CLI)
 scripts/compare_cicflowmeter.py     (new - diagnostic parity comparison)
+scripts/java_reference_parity.py    (new - compiles & runs pinned Java reference, compares features)
+scripts/java_reference_parity/      (new - Java harness + deterministic scenarios)
 reports/pcap_validation_report.*    (generated - JSON + Markdown, same result object)
+reports/java_reference_parity.json  (generated - real Java vs Python feature evidence)
 tests/test_flow_extractor.py        (modified - schema, bulk, active/idle, sanitization)
 tests/test_prediction.py            (modified - decode/confidence tests)
 tests/test_pcap_reader.py           (new - ingestion + report tests)
+tests/test_reference_parity.py      (new - pins features to recorded Java output)
 ```
 
 No datasets, PCAPs, generated captures, caches, or `.idea/` were committed.
