@@ -19,7 +19,10 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import datetime
+import importlib.metadata
 import json
+import platform
 import sys
 from pathlib import Path
 
@@ -30,8 +33,28 @@ if str(REPO_ROOT) not in sys.path:
 from src.pcap_reader import (  # noqa: E402
     CaptureReadError,
     ScapyUnavailableError,
+    render_markdown_report,
     validate_capture,
 )
+
+
+def _environment_metadata() -> "dict[str, str]":
+    """Best-effort capture of the runtime environment for the report."""
+
+    def version(distribution: str) -> str:
+        try:
+            return importlib.metadata.version(distribution)
+        except Exception:
+            return "not installed"
+
+    return {
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "scapy": version("scapy"),
+        "scikit-learn": version("scikit-learn"),
+        "numpy": version("numpy"),
+        "pandas": version("pandas"),
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -51,7 +74,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-packets", type=int, default=None,
                         help="Stop after this many usable packets (default: no limit).")
     parser.add_argument("--json", dest="json_path", default=None,
-                        help="Also write the full JSON report to this path.")
+                        help="Write the full JSON report to this path.")
+    parser.add_argument("--markdown", dest="markdown_path", default=None,
+                        help="Write a human-readable Markdown report to this path. "
+                             "Rendered from the same result object as --json.")
     return parser
 
 
@@ -71,6 +97,17 @@ def main(argv=None) -> int:
     except (ScapyUnavailableError, CaptureReadError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
+
+    # Provenance for the report files. These are added once, before either
+    # format is rendered, so JSON and Markdown carry identical metadata.
+    argv_list = list(argv) if argv is not None else sys.argv[1:]
+    report["command"] = " ".join(
+        ["python", "scripts/validate_pcap.py", *argv_list]
+    )
+    report["generated_at"] = (
+        datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+    )
+    report["environment"] = _environment_metadata()
 
     print("=" * 64)
     print("PCAP -> CICIDS-2017 inference validation")
@@ -110,6 +147,12 @@ def main(argv=None) -> int:
             json.dumps(report, indent=2), encoding="utf-8"
         )
         print(f"\nJSON report written to: {args.json_path}")
+
+    if args.markdown_path:
+        Path(args.markdown_path).write_text(
+            render_markdown_report(report), encoding="utf-8"
+        )
+        print(f"Markdown report written to: {args.markdown_path}")
 
     return 0
 

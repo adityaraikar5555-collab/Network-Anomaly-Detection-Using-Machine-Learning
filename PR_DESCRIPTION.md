@@ -19,16 +19,16 @@ This PR achieves full end-to-end feature compatibility and real-traffic validati
 - **Inference Integration:** Added `predict_flow(flow)` in `src/prediction.py`.
 
 #### 2. Authoritative Java CICFlowMeter Verification
-- **Upstream Ground Truth:** Pinned and verified against authoritative Java reference `ahlashkari/CICFlowMeter` at commit `98a5ebad0df579cc8b43eedd3421b3ae87699901` (`BasicFlow.java` & `FlowGenerator.java`).
+- **Upstream Reference:** Checked against the authoritative Java `ahlashkari/CICFlowMeter` sources at commit `98a5ebad0df579cc8b43eedd3421b3ae87699901` (`BasicFlow.java` & `FlowGenerator.java`). This is **source inspection** — no JVM was available, so exact runtime byte-parity is not claimed.
 - **Active/Idle Calculation:** Resolved trailing active period discrepancy. In `FlowGenerator.java` (line 105), `flow.endActiveIdleTime` is commented out; thus unclosed active periods upon flow termination are not recorded. Standard deviation aligns with Apache Commons Math 3 sample standard deviation ($N - 1$).
-- **Bulk Calculation:** Verified line-for-line against `BasicFlow.java` lines 388–560. Confirmed payload filtering (`payload > 0`), 1.0 s clump gap timeout, 4-packet minimum bulk bound (`BULK_BOUND = 4`), and reverse-direction interleaving resets.
+- **Bulk Calculation:** Semantics matched against `BasicFlow.java`. Confirmed payload filtering (`payload > 0`), 1.0 s clump gap timeout, 4-packet minimum bulk bound (`BULK_BOUND = 4`), and reverse-direction interleaving resets. Note: upstream direction selection has a latent `byte[]` reference-equality defect; our extractor implements the intended per-direction behaviour.
 
 #### 3. Real PCAP/PCAPNG Ingestion & Validation
 - **Ingestion Adapter:** Implemented `src/pcap_reader.py` supporting classic libpcap (microsecond/nanosecond, big/little endian) and PCAPNG files without external C libraries (`scapy`).
 - **Validation CLI:** Added `scripts/validate_pcap.py` for automated schema validation and per-flow prediction scoring.
 - **Diagnostic Tool:** Added `scripts/compare_cicflowmeter.py` for cross-validation against the Python `cicflowmeter` package.
 - **Genuine Wireshark Capture Validation:** Ingested official Wireshark sample capture `http.cap` (SHA-256: `25a72bdf10339f2c29916920c8b9501d294923108de8f29b19aba7cc001ab60d`). All 43 packets parsed, 3 flows reconstructed, 100% schema match, all classified as `BENIGN` with 90.11%–98.19% confidence.
-- **Reproducible Report:** Committed `reports/pcap_validation_report.md` and `reports/pcap_validation_report.json`.
+- **Reproducible Report:** Committed `reports/pcap_validation_report.md` and `reports/pcap_validation_report.json`. Both are rendered from the **same result object** in one run (never hand-edited to agree) and include capture SHA-256, size, model/encoder paths, the exact command, timestamp and environment.
 
 ---
 
@@ -37,14 +37,14 @@ This PR achieves full end-to-end feature compatibility and real-traffic validati
 - **Feature Count:** Exactly 78 ✅
 - **Feature Names & Order:** 100% match vs `model.feature_names_in_` ✅
 - **Time Units:** Microseconds ($10^6$) ✅
-- **Active/Idle Grounding:** Verified vs Java CICFlowMeter v4.0 ✅
-- **Bulk Calculation:** Verified vs Java `BasicFlow.java` (8 scenarios) ✅
+- **Active/Idle Grounding:** Checked vs Java CICFlowMeter sources + regression tests ✅
+- **Bulk Calculation:** Checked vs Java `BasicFlow.java` semantics (8 regression scenarios) ✅
 - **Genuine PCAP Ingestion:** 43 packets, 3 flows, 0 errors ✅
 - **Model Predictions on Real PCAP:** 3/3 BENIGN (avg confidence 94.23%) ✅
-- **Test Suite:** **75 tests pass** (`python -m unittest discover tests`) ✅
+- **Test Suite:** **81 tests pass** (`python -m unittest discover -s tests`) ✅
 
 ```
-Ran 75 tests in 3.212s
+Ran 81 tests in 3.456s
 OK
 ```
 
@@ -56,8 +56,8 @@ OK
 # Run full unit and regression test suite
 python -m unittest discover tests -v
 
-# Run real Wireshark PCAP validation
-python scripts/validate_pcap.py --pcap http.cap --model models/cicids_anomaly_model.pkl --json reports/pcap_validation_report.json
+# Run real Wireshark PCAP validation (writes both reports from one result object)
+python scripts/validate_pcap.py --pcap http.cap --model models/cicids_anomaly_model.pkl --encoder models/cicids_label_encoder.pkl --json reports/pcap_validation_report.json --markdown reports/pcap_validation_report.md
 
 # Run diagnostic CICFlowMeter comparison
 python scripts/compare_cicflowmeter.py --pcap http.cap

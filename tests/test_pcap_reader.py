@@ -15,6 +15,7 @@ from src.pcap_reader import (
     load_flows,
     packet_to_record,
     read_packets,
+    render_markdown_report,
     validate_capture,
 )
 
@@ -159,6 +160,37 @@ class TestValidateCapture(unittest.TestCase):
             self.assertIn(flow["prediction"], ["BENIGN", "ATTACK"])
             self.assertTrue(0.0 <= flow["confidence"] <= 1.0)
 
+    def test_report_includes_capture_metadata(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "s.pcap")
+            pkt = Ether() / IP(src="10.0.0.1", dst="10.0.0.2") / TCP(sport=1, dport=2, flags="SA")
+            pkt.time = 1.0
+            wrpcap(p, [pkt])
+            report = validate_capture(p)
+        self.assertEqual(report["pcap_filename"], "s.pcap")
+        self.assertEqual(len(report["pcap_sha256"]), 64)
+        self.assertGreater(report["pcap_size_bytes"], 0)
+        self.assertIn("model_path", report)
+        self.assertIn("encoder_path", report)
+
+    def test_markdown_report_matches_json_counts(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "s.pcap")
+            pkts = []
+            pkt = Ether() / IP(src="10.0.0.1", dst="10.0.0.2") / TCP(sport=1, dport=2, flags="SA")
+            pkt.time = 1.0
+            pkts.append(pkt)
+            pkt = Ether() / IP(src="10.0.0.2", dst="10.0.0.1") / TCP(sport=2, dport=1, flags="A")
+            pkt.time = 1.5
+            pkts.append(pkt)
+            wrpcap(p, pkts)
+            report = validate_capture(p)
+        markdown = render_markdown_report(report)
+        self.assertIn(report["pcap_sha256"], markdown)
+        for flow in report["flows"]:
+            self.assertIn(str(flow["fwd_packets"]), markdown)
+            self.assertIn(str(flow["bwd_packets"]), markdown)
+
     def test_pcapng_supported(self):
         try:
             from scapy.utils import PcapNgWriter
@@ -173,3 +205,71 @@ class TestValidateCapture(unittest.TestCase):
             w.close()
             records = list(read_packets(p))
         self.assertEqual(len(records), 1)
+
+
+class TestRenderMarkdownReport(unittest.TestCase):
+    """The Markdown renderer must be a faithful view of the JSON result object."""
+
+    def _report(self):
+        return {
+            "pcap": "http.cap",
+            "pcap_filename": "http.cap",
+            "pcap_sha256": "a" * 64,
+            "pcap_size_bytes": 25803,
+            "packet_count": 43,
+            "flow_count": 1,
+            "skipped_unsupported": 0,
+            "skipped_malformed": 0,
+            "schema_ok": True,
+            "schema_errors": [],
+            "label_counts": {"BENIGN": 1, "ATTACK": 0},
+            "model_path": "models/cicids_anomaly_model.pkl",
+            "encoder_path": "models/cicids_label_encoder.pkl",
+            "flows": [
+                {
+                    "flow_index": 0,
+                    "src": "145.254.160.237:3372",
+                    "dst": "65.208.228.223:80",
+                    "protocol": 6,
+                    "packets": 34,
+                    "fwd_packets": 16,
+                    "bwd_packets": 18,
+                    "prediction": "BENIGN",
+                    "confidence": 0.9011,
+                    "model": "cicids_random_forest",
+                }
+            ],
+            "errors": [],
+        }
+
+    def test_renders_directional_split_from_result_object(self):
+        markdown = render_markdown_report(self._report())
+        # The forward/backward split must come from the result object, not a
+        # hand-written value: a stale 17/17 would fail this assertion.
+        self.assertIn("| 0 | `145.254.160.237:3372` | `65.208.228.223:80` | 6 | 34 | 16 | 18 |", markdown)
+        self.assertNotIn("| 17 | 17 |", markdown)
+
+    def test_renders_provenance_and_environment(self):
+        report = self._report()
+        report["generated_at"] = "2026-10-12T00:00:00+00:00"
+        report["command"] = "python scripts/validate_pcap.py --pcap http.cap"
+        report["environment"] = {"python": "3.13.5", "scapy": "2.8.0"}
+        markdown = render_markdown_report(report)
+        self.assertIn("a" * 64, markdown)
+        self.assertIn("2026-10-12T00:00:00+00:00", markdown)
+        self.assertIn("python scripts/validate_pcap.py --pcap http.cap", markdown)
+        self.assertIn("3.13.5", markdown)
+
+    def test_handles_no_flows(self):
+        report = self._report()
+        report["flows"] = []
+        report["flow_count"] = 0
+        markdown = render_markdown_report(report)
+        self.assertIn("_No flows were extracted._", markdown)
+
+    def test_renders_schema_errors(self):
+        report = self._report()
+        report["schema_ok"] = False
+        report["schema_errors"] = ["flow 0: feature schema mismatch"]
+        markdown = render_markdown_report(report)
+        self.assertIn("flow 0: feature schema mismatch", markdown)

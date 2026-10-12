@@ -7,8 +7,8 @@ model, and the validation performed to prove that compatibility.
 ## 1. Pipeline
 
 ```text
-Real PCAP / live capture
-        ↓   (packet parser — NOT included in this repo, see Limitations)
+Real PCAP / PCAPNG capture file
+        ↓   src/pcap_reader.py  (Scapy-based reader; saved captures only, not live sniffing)
 PacketRecord
         ↓   src/flow_extractor.py
 FlowExtractor  →  NetworkFlow
@@ -23,6 +23,10 @@ models/cicids_label_encoder.pkl
 
 `predict_flow(flow)` in `src/prediction.py` is the end-to-end entry point:
 `predict_flow(flow)` == `predict_cicids(flow.extract_features())`.
+
+`scripts/validate_pcap.py` runs the whole path on a saved capture and writes a
+JSON report and (with `--markdown`) a Markdown report, both rendered from the
+same result object.
 
 ## 2. Canonical 78-Feature Schema
 
@@ -76,7 +80,7 @@ Order (index 1-78):
 |----------|----------------|
 | `PacketRecord.timestamp` | **seconds** (float, e.g. `time.time()`) |
 | `Flow Duration`, all `*IAT*` | **microseconds** (× 1,000,000), matching CICIDS-2017 |
-| `Active *`, `Idle *` | **microseconds**; active/idle split threshold = 1 second |
+| `Active *`, `Idle *` | **microseconds**; active/idle split threshold = **5.0 s** (CICFlowMeter `ACTIVE_TIMEOUT`) |
 | `Flow Bytes/s`, `Flow Packets/s`, `Fwd/Bwd Packets/s` | per **second** |
 | Packet/segment lengths, header lengths, window bytes | bytes |
 | Flag counts | packet counts (no scaling) |
@@ -99,15 +103,22 @@ so `0 → ATTACK`, `1 → BENIGN`). Inference therefore feeds raw values directl
    and `FlowExtractor.get_feature_vectors()`.
 3. **Unit mismatch** — time features (`Flow Duration`, all IATs, Active/Idle)
    were emitted in **seconds**; CICIDS-2017 uses **microseconds**. Converted
-   them to microseconds while keeping rate features per-second. (The prototype's
-   `ACTIVE_IDLE_THRESHOLD = 1.0` confirms timestamps are seconds — a 1 µs
-   threshold would be nonsensical.)
-4. **Non-finite safety** — `extract_features()` replaces any non-finite value
-   with `0.0` so the inference validator (which rejects NaN/Inf) is never fed
-   invalid input. Division-by-zero is already guarded throughout.
+   them to microseconds while keeping rate features per-second.
+4. **Non-finite handling** — `extract_features()` does **not** silently coerce
+   invalid values. Every legitimate fallback (zero denominators, insufficient
+   observations, empty directions) yields a defined zero; if a value is still
+   `NaN`/`±Inf` afterwards it indicates invalid input or an unguarded
+   computation, and `NonFiniteFeatureError` is raised with per-feature
+   diagnostics (`NetworkFlow.feature_diagnostics()`).
 5. **Single schema definition** — extracted `CICIDS_FEATURE_NAMES` into
    `src/cicids_features.py`; `src/prediction.py` re-exports it for backward
    compatibility.
+6. **Payload-driven features** — `act_data_pkt_fwd` and `min_seg_size_forward`
+   are computed from the L4 payload, matching the reference definitions.
+7. **Active/Idle & Bulk alignment** — `_active_idle_periods()` omits the trailing
+   unclosed active period and `_statistics()` uses the sample standard deviation
+   (N−1); `_bulk_features()` follows the reference state machine (payload-only,
+   1.0 s clump timeout, `BULK_BOUND = 4`, directional interleaving reset).
 
 The model (`models/cicids_anomaly_model.pkl`) and label encoder
 (`models/cicids_label_encoder.pkl`) were **not retrained or replaced**.
@@ -130,36 +141,71 @@ predict_flow(flow)
 
 ## 6. Tests Performed
 
-`python -m unittest discover -s tests` — **32 tests, all passing.**
+```bash
+python -m unittest discover -s tests
+# Ran 81 tests ... OK
+```
 
-- Existing `tests/test_prediction.py` (11 tests) still pass unchanged.
-- New `tests/test_flow_extractor.py` (19 tests) verifies:
-  exactly 78 features; names match the schema; **order matches both the shared
-  schema and `model.feature_names_in_`**; all values numeric; no NaN/Inf; the
-  model accepts the extracted vector/dict; prediction ∈ {BENIGN, ATTACK};
-  confidence ∈ [0, 1]; deterministic extraction; `Fwd PSH Flags` present and
-  correct; microsecond duration; TCP flag counts; single-packet and empty-flow
-  edge cases; multiple flows; `predict_flow` end-to-end.
-- New decode tests use stubbed models to deterministically verify
-  `0 → ATTACK` and `1 → BENIGN` decoding and confidence calculation.
+- `tests/test_flow_extractor.py` (49 tests): exactly 78 features; names match the
+  schema; **order matches both the shared schema and `model.feature_names_in_`**;
+  all values numeric; no NaN/Inf; the model accepts the extracted vector/dict;
+  prediction ∈ {BENIGN, ATTACK}; confidence ∈ [0, 1]; deterministic extraction;
+  `Fwd PSH Flags` present and correct; microsecond duration; TCP flag counts;
+  payload-driven features; 8 bulk regression scenarios; 7 Active/Idle regression
+  scenarios; non-finite rejection; packet validation.
+- `tests/test_prediction.py` (13 tests): artifact loading, dict/sequence/array/
+  pandas inputs, missing/extra feature rejection, non-numeric/NaN/Inf/None
+  rejection, and deterministic `0 → ATTACK` / `1 → BENIGN` decoding.
+- `tests/test_pcap_reader.py` (19 tests): packet→record conversion, unsupported
+  filtering, malformed counting, `max_packets`, bidirectional grouping, capture
+  error handling, end-to-end `validate_capture`, capture-metadata embedding,
+  Markdown/JSON consistency, and PCAPNG support.
 
 These tests use **synthetic in-memory flows** and do not depend on any committed
 PCAP or CICIDS dataset file.
 
-## 7. Resolved Items & Validation Status
+## 7. Real-Capture Validation
 
-- **Real-PCAP Validation Complete:** A full PCAP/PCAPNG ingestion layer (src/pcap_reader.py)
-  and validation runner (scripts/validate_pcap.py) were implemented. Genuine Wireshark
-  sample capture http.cap (SHA-256: 25a72bdf10339f2c29916920c8b9501d294923108de8f29b19aba7cc001ab60d)
-  was validated end-to-end, yielding 3 flows with 100% schema match and all BENIGN predictions
-  (90-98% confidence). See 
-eports/pcap_validation_report.md for full results.
-- **Active/Idle Grounding:** Independently verified against upstream Java CICFlowMeter
-  (hlashkari/CICFlowMeter commit 98a5ebad0df579cc8b43eedd3421b3ae87699901). Confirmed
-  5.0-second threshold, omission of trailing unclosed active periods (matching FlowGenerator.java),
-  and sample standard deviation ( - 1$, matching Apache Commons Math 3).
-- **Bulk Features Grounding:** Independently verified against Java BasicFlow.java lines 388–560.
-  Confirmed 1.0 s clump timeout, 4-packet minimum bound, payload-only filtering, and directional
-  interleaving resets. Verified via 8 dedicated numerical regression tests.
-- **Standard deviation features:** Flow IAT / packet length statistics follow dataset conventions,
-  while Active/Idle statistics use sample standard deviation ( - 1$) per Apache Commons Math.
+`src/pcap_reader.py` ingests saved classic libpcap (microsecond/nanosecond,
+big/little endian) and PCAPNG captures via Scapy, and `scripts/validate_pcap.py`
+runs the full `capture → features → model` path. The genuine public Wireshark
+sample capture `http.cap` (SHA-256
+`25a72bdf10339f2c29916920c8b9501d294923108de8f29b19aba7cc001ab60d`) was
+processed end-to-end: 43 usable packets, 3 flows, 0 skipped/malformed, 100%
+schema match, all `BENIGN` (90.11%–98.19% confidence). Both
+`reports/pcap_validation_report.json` and `reports/pcap_validation_report.md`
+are generated from the same result object.
+
+## 8. Reference Verification (Source Inspection)
+
+Active/Idle and bulk-transfer semantics were checked by reading the pinned
+upstream Java CICFlowMeter sources (`ahlashkari/CICFlowMeter` commit
+`98a5ebad0df579cc8b43eedd3421b3ae87699901`). **No JVM was available, so this is
+source inspection, not confirmed runtime byte-parity.**
+
+- **Active/Idle** (`BasicFlow.updateActiveIdleTime`, driven from
+  `FlowGenerator.addPacket`): intra-flow active threshold **5.0 s**; sample
+  standard deviation (N−1, Apache Commons Math); the trailing active period at
+  flow termination is **not** recorded upstream (the `endActiveIdleTime` call is
+  commented out).
+- **Bulk** (`BasicFlow` bulk state machine): payload-only participation,
+  **1.0 s** clump timeout, `BULK_BOUND = 4`, and directional interleaving reset.
+- **Known upstream defect:** bulk direction is decided with
+  `this.src == packet.getSrc()` (reference equality on a fresh `byte[]`), which is
+  always `false` in that revision, so forward bulk never accumulates. Our
+  extractor implements the **intended** per-direction behaviour instead.
+- **Length semantics:** upstream length statistics use the L4 payload bytes and
+  the TCP header length only, whereas this extractor uses full frame length and
+  IP+TCP header lengths (consistent with CICIDS-2017 CSV semantics).
+- **Numeric emphasis:** our bulk averages use floating-point division where the
+  reference uses integer division/truncation.
+
+## 9. Known Limitations
+
+- Live-interface sniffing is **not** implemented; only saved capture files are
+  read.
+- Reference verification is by source inspection only (no JVM executed), so exact
+  runtime parity with the Java tool is not claimed.
+- BENIGN/ATTACK accuracy on real traffic was **not** measured against labelled
+  data; `http.cap` contains only normal traffic, so all flows being `BENIGN` is
+  expected but is not an accuracy measurement.

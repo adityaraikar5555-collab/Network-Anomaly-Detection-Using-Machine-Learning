@@ -1,8 +1,13 @@
 # Live CICIDS-2017 ML Inference — Update Summary
 
 **Branch:** `fix/live-ml-inference`
-**Commit:** `5ea0d6e` — "Validate live CICIDS 78-feature ML inference"
+**First commit documented:** `5ea0d6e` — "Validate live CICIDS 78-feature ML inference"
 **Date:** 2026-10-11
+
+> **Status note.** This file was originally written for commit `5ea0d6e`. Later
+> commits on the same branch (`e74bb43`, `dfd4c63`, and the report-consistency
+> follow-up) changed several of the details below. Sections 4–7 are updated to
+> the current branch state; where a value changed, the current value is given.
 
 ---
 
@@ -70,7 +75,10 @@ they can never drift apart.
 - **Added the missing `Fwd PSH Flags`** to `tcp_flag_and_rate_features()` → now 78 features.
 - **Canonical assembly:** added
   - `NetworkFlow.extract_features()` — merges all chunks, orders by
-    `CICIDS_FEATURE_NAMES`, validates for missing/extra keys, converts non-finite → `0.0`.
+    `CICIDS_FEATURE_NAMES`, validates for missing/extra keys, and raises
+    `NonFiniteFeatureError` (with per-feature diagnostics via
+    `feature_diagnostics()`) if any value is still non-finite — it no longer
+    silently coerces to `0.0`.
   - `NetworkFlow.to_feature_vector()` — ordered 78-value list.
   - `FlowExtractor.extract_flow_features()` / `FlowExtractor.get_feature_vectors()`.
 - **Unit fix:** `Flow Duration`, all `*IAT*`, `Active *`, `Idle *` are now
@@ -85,7 +93,8 @@ they can never drift apart.
   `predict_flow(flow)` == `predict_cicids(flow.extract_features())`.
 
 ### `tests/test_flow_extractor.py` **(new)**
-19 tests using synthetic in-memory flows (no PCAP/dataset dependency).
+49 tests using synthetic in-memory flows (no PCAP/dataset dependency), including
+8 bulk and 7 Active/Idle regression scenarios.
 
 ### `tests/test_prediction.py` **(modified)**
 Added deterministic label-decode + confidence tests using stubbed models
@@ -107,11 +116,11 @@ Documents the canonical schema, units, pipeline, prediction output, tests and li
 | Feature names | **MATCH** |
 | Feature order | **MATCH** (asserted vs shared schema *and* `model.feature_names_in_`) |
 | Units | **FIXED** — time features now microseconds; rates per-second |
-| Calculation logic | MATCH (bulk features are a documented approximation) |
+| Calculation logic | MATCH — bulk follows the reference state machine; std uses sample (N−1) |
 | Model inference | **PASS** — accepts extracted vector/dict |
 | Confidence | **PASS** — ∈ [0.0, 1.0] |
 | Prediction labels | ∈ {BENIGN, ATTACK}; both labels decodable |
-| Test suite | **PASS — 32 tests** |
+| Test suite | **PASS — 81 tests** |
 
 Example (real model, synthetic benign-like flow):
 
@@ -125,11 +134,12 @@ Example (real model, synthetic benign-like flow):
 
 ```bash
 python -m unittest discover -s tests
-# Ran 32 tests ... OK
+# Ran 81 tests ... OK
 ```
 
-- Existing `tests/test_prediction.py` (11 tests) still pass unchanged.
-- New `tests/test_flow_extractor.py` (19 tests): exactly 78 features; names match;
+- `tests/test_prediction.py` (13 tests) and `tests/test_pcap_reader.py` (19 tests)
+  also pass.
+- `tests/test_flow_extractor.py` (49 tests): exactly 78 features; names match;
   order matches schema **and** model artifact; all numeric; no NaN/Inf; model
   accepts vector/dict; prediction ∈ {BENIGN, ATTACK}; confidence ∈ [0,1];
   deterministic; `Fwd PSH Flags` present/correct; microsecond duration; TCP flag
@@ -140,29 +150,35 @@ python -m unittest discover -s tests
 
 ## 7. Known Limitations
 
-- **No real-PCAP validation was performed.** The repo has no PCAP/`libpcap`
-  parser or capture layer that creates `PacketRecord`s, and no CICIDS/PCAP data
-  is committed. Only extractor → model was validated (synthetic flows + the real
-  trained model). A capture adapter (`scapy`/`dpkt`/`pyshark`) is still needed to
-  feed live traffic.
-- Consequently, BENIGN/ATTACK accuracy on real traffic was **not** measured.
-  Synthetic attack-like flows were classified BENIGN because their values do not
-  match the CICIDS attack distributions — reported honestly, not asserted as a test.
-- `*.Avg *Bulk*` features use a 1-second inter-packet bulk threshold
-  (approximation of CICFlowMeter bulk; exact training implementation not in repo).
-- Standard-deviation features use the population formula (÷ N).
+- Live-interface sniffing is **not** implemented; only saved capture files are
+  read (`src/pcap_reader.py` + `scripts/validate_pcap.py`).
+- Reference verification of Active/Idle and bulk is by **source inspection** of
+  the pinned Java CICFlowMeter commit; no JVM was available, so exact runtime
+  parity is not claimed.
+- BENIGN/ATTACK **accuracy was not measured**: `http.cap` is normal traffic, so
+  all flows classifying as BENIGN is expected, not an accuracy result.
+- Bulk features follow the reference state machine (1.0 s clump timeout,
+  `BULK_BOUND = 4`, payload-only, directional interleaving reset); our averages
+  use floating-point division where the reference truncates.
+- Standard-deviation features use the **sample** formula (N−1), matching Apache
+  Commons Math as used by the reference.
 
 ---
 
 ## 8. Files Changed at a Glance
 
 ```
-INFERENCE_INTEGRATION.md      (new, 164 lines)
-src/cicids_features.py        (new, 102 lines)
-src/flow_extractor.py         (modified, +123)
-src/prediction.py             (modified, net -94 / +..)
-tests/test_flow_extractor.py  (new, 238 lines)
-tests/test_prediction.py      (modified, +35)
+INFERENCE_INTEGRATION.md            (new/updated - canonical schema, units, validation)
+src/cicids_features.py              (new - canonical 78-feature schema)
+src/flow_extractor.py               (modified - 78 features, active/idle & bulk, sanitization)
+src/prediction.py                   (modified - predict_flow, re-exported schema)
+src/pcap_reader.py                  (new - PCAP/PCAPNG ingestion + report rendering)
+scripts/validate_pcap.py            (new - end-to-end capture validation CLI)
+scripts/compare_cicflowmeter.py     (new - diagnostic parity comparison)
+reports/pcap_validation_report.*    (generated - JSON + Markdown, same result object)
+tests/test_flow_extractor.py        (modified - schema, bulk, active/idle, sanitization)
+tests/test_prediction.py            (modified - decode/confidence tests)
+tests/test_pcap_reader.py           (new - ingestion + report tests)
 ```
 
 No datasets, PCAPs, generated captures, caches, or `.idea/` were committed.
