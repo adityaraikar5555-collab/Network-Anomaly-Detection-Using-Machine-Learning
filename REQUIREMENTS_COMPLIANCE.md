@@ -2,7 +2,7 @@
 
 **Project:** Network Anomaly Detection Using Machine Learning (CICIDS-2017 live inference)
 **Branch:** `fix/live-ml-inference`
-**Commits:** `5ea0d6e` (implementation), `e74bb43` (parity fixes), `dfd4c63` (Java/PCAP validation)
+**Commits:** `5ea0d6e` (implementation), `e74bb43` (parity fixes), `dfd4c63` (Java/PCAP validation), plus follow-up commits on `fix/live-ml-inference` for report consistency and runtime Java-reference parity.
 **Scope:** Validate and fix the live 78-feature flow extractor so it feeds the
 existing `models/cicids_anomaly_model.pkl` exactly the same 78 features it was
 trained on — without retraining or replacing the model.
