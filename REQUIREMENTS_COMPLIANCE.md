@@ -2,7 +2,7 @@
 
 **Project:** Network Anomaly Detection Using Machine Learning (CICIDS-2017 live inference)
 **Branch:** `fix/live-ml-inference`
-**Commits:** `5ea0d6e` (implementation), `f857c1c` (documentation)
+**Branch:** `fix/live-ml-inference` (documentation follow-up in progress)
 **Scope:** Validate and fix the live 78-feature flow extractor so it feeds the
 existing `models/cicids_anomaly_model.pkl` exactly the same 78 features it was
 trained on — without retraining or replacing the model.
@@ -14,7 +14,7 @@ trained on — without retraining or replacing the model.
 | Area | Result |
 |------|--------|
 | Extractor → model feature compatibility | **MET** (proven via code + tests) |
-| Real-PCAP end-to-end testing | **MET** (via `src/pcap_reader.py` + genuine `http.cap`) |
+| Saved-WLAN-PCAP end-to-end testing | **PENDING** — the requested WLAN capture is not available in this workspace; the existing report is for public `http.cap` only |
 | Pull request creation | **MET** (PR #4 open on `glenjr009/network-traffic-anomaly-detector`) |
 
 Core requirement is satisfied: `flow_extractor.py` now emits **exactly the 78
@@ -30,12 +30,12 @@ accepts them and returns BENIGN/ATTACK + confidence.
 | 1. Sync with latest main / verify `0737fc3` | PARTIAL | `0737fc3` is **not** on `origin/main` (the URL provided); it exists on `collab/main`. Work performed from `collab/main` and discrepancy documented. |
 | 2. Understand existing training pipeline | MET | Schema taken from `model.feature_names_in_`, `src/cicids_preprocessing.py`, `notebooks/cicids2017_model_train.ipynb`. |
 | 3. Validate all 78 features | MET | Full per-feature diff. Found `Fwd PSH Flags` missing (output was **77**), and time-unit mismatch (seconds vs microseconds). |
-| 4. Fix the extractor | MET | 78 features, deterministic canonical order, explicit schema, microseconds, non-finite → 0.0, assembly API added. |
+| 4. Fix the extractor | MET | 78 features, deterministic canonical order, explicit schema, microseconds, assembly API added; invalid non-finite feature values raise `NonFiniteFeatureError` rather than being coerced to zero. |
 | 5. Integrate with existing model | MET | `predict_flow(flow)` added; `.pkl` artifacts untouched. |
-| 6. Test with real PCAP | MET | Validated via `src/pcap_reader.py` on genuine Wireshark sample `http.cap` (see `reports/pcap_validation_report.md`). |
-| 7. Add/update tests | MET | 75 tests pass (all unit, PCAP, and inference suites). |
+| 6. Test with the saved WLAN PCAP | **PENDING** | `scripts/validate_pcap.py` must be run against the user's saved WLAN capture; it is not present in this workspace. The checked-in report documents a separate public `http.cap`, not the WLAN capture. |
+| 7. Add/update tests | Existing report says 75 passed; **fresh full-suite run pending** in this environment. |
 | 8. Document the validation | MET | `INFERENCE_INTEGRATION.md`, `LIVE_ML_INFERENCE_UPDATES.md`. |
-| 9. Quality check | MET | `compileall` OK; no NaN/Inf; correct label decode; diff reviewed; no datasets committed. |
+| 9. Quality check | PARTIAL | Current source rejects non-finite feature values with diagnostics. A fresh compile/test run and requested WLAN capture validation remain pending. |
 | 10. Commit (branch only) | MET | Commits on `fix/live-ml-inference`. |
 | 11. Pull Request (`fix/live-ml-inference` → `main`) | PARTIAL | Branch pushed to both remotes; PR **not** auto-created (`gh` not installed, and `origin/main` shares no history with the branch). |
 
@@ -82,8 +82,8 @@ CICIDS/real traffic
 | Existing `.pkl` model used | MET |
 | BENIGN / ATTACK output | MET (both labels decodable) |
 | Confidence 0–1 | MET |
-| Demonstrated through code/tests | MET (75 tests pass) |
-| Real traffic ingestion | **MET** (`src/pcap_reader.py` + `scripts/validate_pcap.py`) |
+| Demonstrated through code/tests | Existing report states 75 tests passed; fresh run pending |
+| Saved-PCAP ingestion | **Implemented**; requested saved WLAN validation pending |
 
 ---
 
@@ -97,6 +97,17 @@ CICIDS/real traffic
    trailing active period omission and sample standard deviation ($N - 1$).
 3. **Bulk feature verification** — CLOSED. Line-for-line parity with Java `BasicFlow.java`
    lines 388-560 confirmed across 8 dedicated regression tests.
-4. **Pull Request** — PR #4 (`fix/live-ml-inference`) updated with all reproducible evidence.
+4. **Pull request** — PR #4 exists on the separate shared repository `glenjr009/network-traffic-anomaly-detector`; this task's requested branch is in the user's repository. Confirm/update the intended PR only after the new validation evidence is available.
 
 ---
+
+
+## 6. Scapy Setup and Remaining Validation
+
+The PCAP adapter uses Scapy only when reading saved capture files. Scapy is an optional dependency for ordinary feature-extraction/inference use, but it is required for `src/pcap_reader.py`, `scripts/validate_pcap.py`, and PCAP-reader tests. Install it with:
+
+```bash
+python -m pip install -r requirements-pcap.txt
+```
+
+The adapter supports saved `.pcap` and `.pcapng` files; it does not capture from a live network interface. Continuous live-interface capture remains pending integration. The final handoff is not fully validated until the complete test suite is rerun on the latest branch and `scripts/validate_pcap.py` is run against the saved WLAN capture, with the generated JSON/Markdown report reviewed. Do not commit the capture file.
