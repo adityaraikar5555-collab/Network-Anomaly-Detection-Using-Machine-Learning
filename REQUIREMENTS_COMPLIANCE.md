@@ -138,7 +138,7 @@ Status vocabulary: **PASS** / **FAIL** / **BLOCKED** / **NOT APPLICABLE**.
 | Item | Result |
 |------|--------|
 | Current branch | `fix/live-ml-inference-onto-main` |
-| Final handoff commit | `FINAL_SHA_PLACEHOLDER_ONTO` (subsequent commits only update metadata/this field) |
+| Final handoff commit | `bea4875` (this report; the only later commit updates this field) |
 | Original branch (preserved) | `fix/live-ml-inference` (`3d6194c`) |
 | Integration branch parent | `main` (`ec3300e`) |
 | Full test suite | **PASS** — `Ran 88 tests ... OK` (0 failures, 0 errors, 0 skipped) |
