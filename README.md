@@ -57,3 +57,21 @@ WebSocket
       │
       ▼
 Chrome Security Dashboard
+
+
+## Saved PCAP/PCAPNG Validation Setup
+
+The saved-capture reader in `src/pcap_reader.py` uses Scapy. Scapy is optional for the core extractor/inference modules, but required for reading `.pcap`/`.pcapng` files, running `scripts/validate_pcap.py`, and executing PCAP-reader tests. Install it from the repository root:
+
+```bash
+python -m pip install -r requirements-pcap.txt
+```
+
+Run the end-to-end saved-capture validation (the capture remains local and must not be committed):
+
+```bash
+python scripts/validate_pcap.py --pcap path/to/saved-wlan-capture.pcapng --json reports/wlan_validation.json
+python -m unittest discover -s tests -v
+```
+
+The current adapter handles saved PCAP/PCAPNG files only. **Continuous live-interface capture is pending integration** and is not claimed as implemented.
