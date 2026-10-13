@@ -11,7 +11,7 @@
 | Size (bytes) | 25803 |
 | Model | `models/cicids_anomaly_model.pkl` |
 | Label encoder | `models/cicids_label_encoder.pkl` |
-| Generated at (UTC) | 2026-10-13T13:25:25+00:00 |
+| Generated at (UTC) | 2026-10-13T13:56:14+00:00 |
 | Command | `python scripts/validate_pcap.py --pcap http.cap --json reports/pcap_validation_report.json --markdown reports/pcap_validation_report.md` |
 
 ## 2. Environment

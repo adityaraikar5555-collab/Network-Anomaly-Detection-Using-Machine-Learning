@@ -35,8 +35,10 @@ retraining or replacing the model.
 - The two remotes have **unrelated histories** (no merge-base). The complete
   pipeline (extractor + schema + models) exists on `collab/main`, so the work was
   done on the existing branch based on it.
-- Consequence: a PR against `origin/main` is not possible (no common ancestor);
-  a valid PR target is `collab/main`.
+- Consequence: the branch `fix/live-ml-inference` cannot be compared to
+  `origin/main` (no common ancestor). Resolution: `fix/live-ml-inference-onto-main`
+  carries the identical final tree parented directly on `origin/main`, so it **can**
+  be PR'd against `origin/main`. See §9.
 
 ---
 
@@ -196,12 +198,22 @@ No datasets, PCAPs, generated captures, caches, or `.idea/` were committed.
 
 ## 9. Pull Request
 
-`gh` is not installed; the branch was pushed to both remotes (never `main`).
-Open the PR manually:
+The PR belongs in the **user repository** (Aditya's), not the shared repo.
 
-- Shared repo (history matches, recommended):
-  `https://github.com/glenjr009/network-traffic-anomaly-detector/pull/new/fix/live-ml-inference`
-- User repo:
-  `https://github.com/adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning/pull/new/fix/live-ml-inference`
+- Repository: `adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning`
+- Base: `main`
+- Compare: `fix/live-ml-inference-onto-main` (the working branch
+  `fix/live-ml-inference` has no common ancestor with `main`, so it cannot be
+  compared/PR'd directly — see §2 and `REQUIREMENTS_COMPLIANCE.md` §7.8)
+- Title: `Integrate live CICIDS ML inference`
 
-**PR title:** `Fix live CICIDS ML inference feature compatibility`
+Open the PR manually (no `gh`/API token here):
+
+```
+https://github.com/adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning/compare/main...fix/live-ml-inference-onto-main
+```
+
+The only pre-existing PR (#4, "Fix/live ml inference", base `main` ← head
+`fix/live-ml-inference`) lives in the **collaborator** repo
+`glenjr009/network-traffic-anomaly-detector`; it is not a PR in Aditya's repo.
+Do not create a PR in Glen's repo.
