@@ -2,7 +2,6 @@
 
 **Project:** Network Anomaly Detection Using Machine Learning (CICIDS-2017 live inference)
 **Branch:** `fix/live-ml-inference`
-**Branch:** `fix/live-ml-inference` (documentation follow-up in progress)
 **Scope:** Validate and fix the live 78-feature flow extractor so it feeds the
 existing `models/cicids_anomaly_model.pkl` exactly the same 78 features it was
 trained on — without retraining or replacing the model.
@@ -97,7 +96,7 @@ CICIDS/real traffic
    trailing active period omission and sample standard deviation ($N - 1$).
 3. **Bulk feature verification** — CLOSED. Line-for-line parity with Java `BasicFlow.java`
    lines 388-560 confirmed across 8 dedicated regression tests.
-4. **Pull request** — PR #4 exists on the separate shared repository `glenjr009/network-traffic-anomaly-detector`; this task's requested branch is in the user's repository. Confirm/update the intended PR only after the new validation evidence is available.
+4. **Pull request** — PR #4 is on the separate shared repository `glenjr009/network-traffic-anomaly-detector`. No open PR was found in this user's repository during this check. The requested branch has documentation commits, but the PR description and final validation evidence still need updating after the WLAN capture and full-suite run.
 
 ---
 
