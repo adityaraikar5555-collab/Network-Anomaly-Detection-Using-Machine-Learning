@@ -102,9 +102,11 @@ so `0 → ATTACK`, `1 → BENIGN`). Inference therefore feeds raw values directl
    them to microseconds while keeping rate features per-second. (The prototype's
    `ACTIVE_IDLE_THRESHOLD = 1.0` confirms timestamps are seconds — a 1 µs
    threshold would be nonsensical.)
-4. **Non-finite safety** — `extract_features()` replaces any non-finite value
-   with `0.0` so the inference validator (which rejects NaN/Inf) is never fed
-   invalid input. Division-by-zero is already guarded throughout.
+4. **Non-finite safety** — `extract_features()` rejects any remaining non-finite value by raising
+   `NonFiniteFeatureError` with per-feature diagnostics. Expected edge cases
+   (such as zero denominators or insufficient observations) are handled explicitly
+   and return defined zero values; unexpected NaN/Inf values are never silently
+   converted to `0.0`. Division-by-zero is guarded throughout.
 5. **Single schema definition** — extracted `CICIDS_FEATURE_NAMES` into
    `src/cicids_features.py`; `src/prediction.py` re-exports it for backward
    compatibility.
@@ -128,7 +130,23 @@ predict_flow(flow)
 
 `confidence` is `predict_proba` for the predicted class, in `[0.0, 1.0]`.
 
-## 6. Tests Performed
+## 6. Scapy Installation and PCAP Reader Setup
+
+The PCAP/PCAPNG reader uses Scapy as an optional dependency. The base feature-extraction and inference code can be imported without Scapy, but saved-capture ingestion, `scripts/validate_pcap.py`, and the PCAP-reader tests require it. From the repository root, install the PCAP extras with:
+
+```bash
+python -m pip install -r requirements-pcap.txt
+```
+
+Then validate a saved capture and write a JSON report:
+
+```bash
+python scripts/validate_pcap.py --pcap path/to/capture.pcapng --json reports/wlan_validation.json
+```
+
+The adapter supports saved PCAP/PCAPNG files only. Continuous live-interface capture is pending integration and is not part of this implementation.
+
+## 7. Tests Performed
 
 `python -m unittest discover -s tests` — **32 tests, all passing.**
 
@@ -146,7 +164,7 @@ predict_flow(flow)
 These tests use **synthetic in-memory flows** and do not depend on any committed
 PCAP or CICIDS dataset file.
 
-## 7. Resolved Items & Validation Status
+## 8. Resolved Items & Validation Status
 
 - **Real-PCAP Validation Complete:** A full PCAP/PCAPNG ingestion layer (src/pcap_reader.py)
   and validation runner (scripts/validate_pcap.py) were implemented. Genuine Wireshark
