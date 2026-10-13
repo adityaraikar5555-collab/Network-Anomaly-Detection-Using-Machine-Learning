@@ -11,92 +11,26 @@ import joblib
 import numpy as np
 import pandas as pd
 
+try:  # Support both "src.prediction" and flat "prediction" import styles.
+    from .cicids_features import CICIDS_FEATURE_NAMES
+except ImportError:  # pragma: no cover - fallback for flat imports
+    from cicids_features import CICIDS_FEATURE_NAMES
+
 # Default model and encoder locations relative to this file
 _BASE_DIR = Path(__file__).resolve().parent.parent
 _DEFAULT_MODEL_PATH = _BASE_DIR / "models" / "cicids_anomaly_model.pkl"
 _DEFAULT_ENCODER_PATH = _BASE_DIR / "models" / "cicids_label_encoder.pkl"
 
-# Exact 78 features in the required order as expected by the trained CICIDS-2017 Random Forest model
-CICIDS_FEATURE_NAMES: Tuple[str, ...] = (
-    "Destination Port",
-    "Flow Duration",
-    "Total Fwd Packets",
-    "Total Backward Packets",
-    "Total Length of Fwd Packets",
-    "Total Length of Bwd Packets",
-    "Fwd Packet Length Max",
-    "Fwd Packet Length Min",
-    "Fwd Packet Length Mean",
-    "Fwd Packet Length Std",
-    "Bwd Packet Length Max",
-    "Bwd Packet Length Min",
-    "Bwd Packet Length Mean",
-    "Bwd Packet Length Std",
-    "Flow Bytes/s",
-    "Flow Packets/s",
-    "Flow IAT Mean",
-    "Flow IAT Std",
-    "Flow IAT Max",
-    "Flow IAT Min",
-    "Fwd IAT Total",
-    "Fwd IAT Mean",
-    "Fwd IAT Std",
-    "Fwd IAT Max",
-    "Fwd IAT Min",
-    "Bwd IAT Total",
-    "Bwd IAT Mean",
-    "Bwd IAT Std",
-    "Bwd IAT Max",
-    "Bwd IAT Min",
-    "Fwd PSH Flags",
-    "Bwd PSH Flags",
-    "Fwd URG Flags",
-    "Bwd URG Flags",
-    "Fwd Header Length",
-    "Bwd Header Length",
-    "Fwd Packets/s",
-    "Bwd Packets/s",
-    "Min Packet Length",
-    "Max Packet Length",
-    "Packet Length Mean",
-    "Packet Length Std",
-    "Packet Length Variance",
-    "FIN Flag Count",
-    "SYN Flag Count",
-    "RST Flag Count",
-    "PSH Flag Count",
-    "ACK Flag Count",
-    "URG Flag Count",
-    "CWE Flag Count",
-    "ECE Flag Count",
-    "Down/Up Ratio",
-    "Average Packet Size",
-    "Avg Fwd Segment Size",
-    "Avg Bwd Segment Size",
-    "Fwd Header Length.1",
-    "Fwd Avg Bytes/Bulk",
-    "Fwd Avg Packets/Bulk",
-    "Fwd Avg Bulk Rate",
-    "Bwd Avg Bytes/Bulk",
-    "Bwd Avg Packets/Bulk",
-    "Bwd Avg Bulk Rate",
-    "Subflow Fwd Packets",
-    "Subflow Fwd Bytes",
-    "Subflow Bwd Packets",
-    "Subflow Bwd Bytes",
-    "Init_Win_bytes_forward",
-    "Init_Win_bytes_backward",
-    "act_data_pkt_fwd",
-    "min_seg_size_forward",
-    "Active Mean",
-    "Active Std",
-    "Active Max",
-    "Active Min",
-    "Idle Mean",
-    "Idle Std",
-    "Idle Max",
-    "Idle Min",
-)
+# CICIDS_FEATURE_NAMES is re-exported here for backward compatibility; the
+# canonical definition lives in src/cicids_features.py and is shared with the
+# live flow extractor so the schema cannot drift between training and inference.
+__all__ = [
+    "CICIDS_FEATURE_NAMES",
+    "load_cicids_artifacts",
+    "validate_and_preprocess_cicids",
+    "predict_cicids",
+    "predict_flow",
+]
 
 # Global cache for loaded model and label encoder instances
 _CACHED_MODEL = None
@@ -328,3 +262,39 @@ def predict_cicids(
         "confidence": round(confidence, 4),
         "model": "cicids_random_forest",
     }
+
+
+def predict_flow(
+    flow: Any,
+    model: Optional[Any] = None,
+    label_encoder: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Predict BENIGN/ATTACK for a single extracted network flow.
+
+    This is the end-to-end entry point for the live pipeline:
+
+        NetworkFlow -> extract_features() -> model -> BENIGN/ATTACK + confidence
+
+    Args:
+        flow: A ``src.flow_extractor.NetworkFlow`` instance (or any object that
+              exposes an ``extract_features()`` method returning the canonical
+              78-feature mapping).
+        model: Optional pre-loaded RandomForestClassifier model instance.
+        label_encoder: Optional pre-loaded LabelEncoder instance.
+
+    Returns:
+        Dictionary with ``prediction`` ("BENIGN" or "ATTACK"), ``confidence``
+        (0.0 - 1.0) and ``model`` keys.
+
+    Raises:
+        TypeError: If ``flow`` does not expose an ``extract_features`` method.
+        ValueError: If the extracted features are invalid for the model.
+    """
+    if not hasattr(flow, "extract_features"):
+        raise TypeError(
+            "predict_flow expects a flow object with an 'extract_features()' method, "
+            f"got '{type(flow).__name__}'."
+        )
+
+    features = flow.extract_features()
+    return predict_cicids(features, model=model, label_encoder=label_encoder)
