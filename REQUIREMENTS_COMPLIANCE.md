@@ -136,7 +136,8 @@ Recorded from actual executions on the consolidated branch. Status vocabulary:
 | Item | Result |
 |------|--------|
 | Current branch | `fix/live-ml-inference` |
-| Final handoff commit | `23658a4` (this report; subsequent commits only update metadata) |
+| Final handoff commit | `5c4961a` on `fix/live-ml-inference` (subsequent commits only update metadata/this field) |
+| Integration branch | `fix/live-ml-inference-onto-main` (tree = final; parented on `main`) |
 | Full test suite | **PASS** — `Ran 88 tests ... OK` (0 failures, 0 errors, 0 skipped) |
 | Java Active/Idle + Bulk parity | **PASS** — fresh runtime reproduction, all checks pass |
 | 78-feature schema vs. model artifact | **PASS** — `model.feature_names_in_ == CICIDS_FEATURE_NAMES` (78/78) |
