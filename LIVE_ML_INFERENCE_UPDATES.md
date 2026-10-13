@@ -207,13 +207,13 @@ The PR belongs in the **user repository** (Aditya's), not the shared repo.
   compared/PR'd directly — see §2 and `REQUIREMENTS_COMPLIANCE.md` §7.8)
 - Title: `Integrate live CICIDS ML inference`
 
-Open the PR manually (no `gh`/API token here):
+**Created PR #1 — "Integrate live CICIDS ML inference"** (open, `mergeable=clean`):
 
 ```
-https://github.com/adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning/compare/main...fix/live-ml-inference-onto-main
+https://github.com/adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning/pull/1
 ```
 
-The only pre-existing PR (#4, "Fix/live ml inference", base `main` ← head
+The only other related PR (#4, "Fix/live ml inference", base `main` ← head
 `fix/live-ml-inference`) lives in the **collaborator** repo
-`glenjr009/network-traffic-anomaly-detector`; it is not a PR in Aditya's repo.
-Do not create a PR in Glen's repo.
+`glenjr009/network-traffic-anomaly-detector`; it is not a PR in Aditya's repo and
+was not touched here. Do not create a PR in Glen's repo.

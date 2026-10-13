@@ -16,7 +16,7 @@ trained on — without retraining or replacing the model.
 |------|--------|
 | Extractor → model feature compatibility | **PASS** (proven via code + tests + live model artifact) |
 | Saved-WLAN-PCAP end-to-end testing | **BLOCKED** — the requested WLAN capture is not present in this workspace; the available report is for public `http.cap` only |
-| Pull request in this repository | **BLOCKED** — no PR exists in `adityaraikar5555-collab/...`; the only PR (#4) lives in the collaborator repo `glenjr009/...` (see §7) |
+| Pull request in this repository | **PASS** — PR #1 "Integrate live CICIDS ML inference" created in `adityaraikar5555-collab/...` (`main` ← `fix/live-ml-inference-onto-main`); the only *other* PR (#4) lives in the collaborator repo `glenjr009/...` (see §7.7) |
 
 Core requirement is satisfied: `flow_extractor.py` now emits **exactly the 78
 training features** (names, order, units, meaning) and the existing Random Forest
@@ -38,7 +38,7 @@ accepts them and returns BENIGN/ATTACK + confidence.
 | 8. Document the validation | PASS | `INFERENCE_INTEGRATION.md`, `LIVE_ML_INFERENCE_UPDATES.md`, this report. |
 | 9. Quality check | PASS (WLAN blocked) | Fresh full-suite run (88 pass, 0 skip), fresh runtime Java parity (all checks pass), full documentation vs. source review. Requested WLAN capture validation remains **BLOCKED** (input missing). |
 | 10. Commit (branch only) | PASS | Final validation is on `fix/live-ml-inference-onto-main`; see §7 for the head SHA. Original `fix/live-ml-inference` preserved. |
-| 11. Pull Request | BLOCKED | No PR exists in `adityaraikar5555-collab/...`; `gh` is not installed and no API token is available, so the PR could not be created automatically. The repo compiles and the compare endpoint is valid (§7.7). Compare link provided in §7. |
+| 11. Pull Request | PASS | PR #1 created in `adityaraikar5555-collab/...` (`main` ← `fix/live-ml-inference-onto-main`) via the API, using the locally stored Git credential. Verified open, `mergeable=clean`, 60 changed files. See §7.7. |
 
 ---
 
@@ -238,18 +238,29 @@ was not used. No generated artifacts (`__pycache__/`, `*.pyc`) are tracked.
 1. **Saved WLAN capture missing.** Supply the `.pcap`/`.pcapng` file, then run
    §7.3 with `--pcap <wlan>` and `--json reports/wlan_validation.json
    --markdown reports/wlan_validation_report.md`.
-2. **No PR in this repository.** See §7.8 — histories are unrelated, so a direct
-   PR from `fix/live-ml-inference` to `main` is impossible; an integration branch
-   was pushed instead.
+2. **PR opened** (not a blocker): PR #1 (§7.7). The original
+   `fix/live-ml-inference` cannot be compared to `main` (unrelated histories), so
+   the PR is from the integration branch `fix/live-ml-inference-onto-main` (§7.8).
 3. **Continuous live-interface capture** is out of scope and unstarted.
 
 ### 7.7 Pull request / compare link
 
-The only associated PR (#4) is in the collaborator repo
-`glenjr009/network-traffic-anomaly-detector`, not in
-`adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning`. No PR
-was created in this repository (and none was updated), because `gh`/API access is
-unavailable here. Preferred compare link (integration branch, see §7.8):
+**PR #1 — "Integrate live CICIDS ML inference"** was created in the user's
+repository (`main` ← `fix/live-ml-inference-onto-main`):
+
+```
+https://github.com/adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning/pull/1
+```
+
+It was created through the GitHub API using the locally stored Git credential
+(Git Credential Manager); `gh` itself is not installed. Verified via API:
+`state=open`, `mergeable=clean`, 60 changed files.
+
+The unrelated collaborator PR (#4, "Fix/live ml inference", base `main` ← head
+`fix/live-ml-inference`) lives in `glenjr009/network-traffic-anomaly-detector`; it
+is **not** a PR in this repository and was neither created nor updated here.
+
+Manual compare link (equivalent, if needed):
 
 ```
 https://github.com/adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning/compare/main...fix/live-ml-inference-onto-main
