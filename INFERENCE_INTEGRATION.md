@@ -109,7 +109,8 @@ so `0 → ATTACK`, `1 → BENIGN`). Inference therefore feeds raw values directl
    observations, empty directions) yields a defined zero; if a value is still
    `NaN`/`±Inf` afterwards it indicates invalid input or an unguarded
    computation, and `NonFiniteFeatureError` is raised with per-feature
-   diagnostics (`NetworkFlow.feature_diagnostics()`).
+   diagnostics (`NetworkFlow.feature_diagnostics()`). Unexpected NaN/Inf values
+   are never silently converted to `0.0`; division-by-zero is guarded throughout.
 5. **Single schema definition** — extracted `CICIDS_FEATURE_NAMES` into
    `src/cicids_features.py`; `src/prediction.py` re-exports it for backward
    compatibility.
@@ -139,7 +140,23 @@ predict_flow(flow)
 
 `confidence` is `predict_proba` for the predicted class, in `[0.0, 1.0]`.
 
-## 6. Tests Performed
+## 6. Scapy Installation and PCAP Reader Setup
+
+The PCAP/PCAPNG reader uses Scapy as an optional dependency. The base feature-extraction and inference code can be imported without Scapy, but saved-capture ingestion, `scripts/validate_pcap.py`, and the PCAP-reader tests require it. From the repository root, install the PCAP extras with:
+
+```bash
+python -m pip install -r requirements-pcap.txt
+```
+
+Then validate a saved capture and write a JSON report:
+
+```bash
+python scripts/validate_pcap.py --pcap path/to/capture.pcapng --json reports/wlan_validation.json
+```
+
+The adapter supports saved PCAP/PCAPNG files only. Continuous live-interface capture is pending integration and is not part of this implementation.
+
+## 7. Tests Performed
 
 ```bash
 python -m unittest discover -s tests
