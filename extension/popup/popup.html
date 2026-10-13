@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Network Anomaly Detector</title>
+
+    <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+
+    <div class="container">
+
+        <header class="header">
+            <div class="logo">🛡️</div>
+
+            <div>
+                <h1>Network Anomaly Detector</h1>
+                <p>AI-Powered Network Security</p>
+            </div>
+        </header>
+
+
+        <section class="status-card">
+
+            <div class="status-icon" id="statusIcon">
+                ✓
+            </div>
+
+            <div>
+                <h2 id="statusText">SYSTEM NORMAL</h2>
+
+                <p id="statusDescription">
+                    No anomaly detected
+                </p>
+            </div>
+
+        </section>
+
+
+        <section class="score-card">
+
+            <div class="section-title">
+                <span>Anomaly Score</span>
+            </div>
+
+            <div class="score" id="anomalyScore">
+                0%
+            </div>
+
+            <div class="score-bar">
+                <div
+                    class="score-progress"
+                    id="scoreProgress">
+                </div>
+            </div>
+
+        </section>
+
+
+        <section class="info-card">
+
+            <h3>Current Website</h3>
+
+            <p id="currentSite">
+                Detecting...
+            </p>
+
+        </section>
+
+
+        <section class="info-card">
+
+            <h3>Detection</h3>
+
+            <div class="info-row">
+                <span>Status</span>
+                <span id="detectionStatus">Normal</span>
+            </div>
+
+            <div class="info-row">
+                <span>Severity</span>
+                <span id="severity">Low</span>
+            </div>
+
+            <div class="info-row">
+                <span>Attack Type</span>
+                <span id="attackType">None</span>
+            </div>
+
+        </section>
+
+
+        <div class="live-status">
+    ● LIVE DETECTION ACTIVE
+</div>
+
+
+        <footer>
+            Network Traffic Anomaly Detector
+        </footer>
+
+    </div>
+
+    <script src="popup.js"></script>
+
+</body>
+
+</html>

@@ -1,0 +1,359 @@
+{
+  "reference": {
+    "url": "https://github.com/ahlashkari/CICFlowMeter.git",
+    "commit": "98a5ebad0df579cc8b43eedd3421b3ae87699901",
+    "sources": [
+      "src/main/java/cic/cs/unb/ca/jnetpcap/BasicFlow.java",
+      "src/main/java/cic/cs/unb/ca/jnetpcap/BasicPacketInfo.java",
+      "src/main/java/cic/cs/unb/ca/jnetpcap/IdGenerator.java",
+      "src/main/java/cic/cs/unb/ca/jnetpcap/DateFormatter.java"
+    ],
+    "harness": "scripts/java_reference_parity/ParityHarness.java"
+  },
+  "runtime": {
+    "java": "openjdk version \"21.0.8\" 2025-07-15 LTS",
+    "generated_at": "2026-10-13T13:27:22.269646+00:00"
+  },
+  "scenarios": [
+    {
+      "name": "active_idle.csv",
+      "java": {
+        "Active Mean": 1000000.0,
+        "Active Std": 0.0,
+        "Active Max": 1000000.0,
+        "Active Min": 1000000.0,
+        "Idle Mean": 8500000.0,
+        "Idle Std": 3535533.9059327375,
+        "Idle Max": 11000000.0,
+        "Idle Min": 6000000.0,
+        "Fwd Avg Bytes/Bulk": 0.0,
+        "Fwd Avg Packets/Bulk": 0.0,
+        "Fwd Avg Bulk Rate": 0.0,
+        "Bwd Avg Bytes/Bulk": 0.0,
+        "Bwd Avg Packets/Bulk": 0.0,
+        "Bwd Avg Bulk Rate": 0.0
+      },
+      "python": {
+        "Active Mean": 1000000.0,
+        "Active Std": 0.0,
+        "Active Max": 1000000.0,
+        "Active Min": 1000000.0,
+        "Idle Mean": 8500000.0,
+        "Idle Std": 3535533.9059327375,
+        "Idle Max": 11000000.0,
+        "Idle Min": 6000000.0,
+        "Fwd Avg Bytes/Bulk": 0.0,
+        "Fwd Avg Packets/Bulk": 0.0,
+        "Fwd Avg Bulk Rate": 0.0,
+        "Bwd Avg Bytes/Bulk": 0.0,
+        "Bwd Avg Packets/Bulk": 0.0,
+        "Bwd Avg Bulk Rate": 0.0
+      }
+    },
+    {
+      "name": "bulk_fwd.csv",
+      "java": {
+        "Active Mean": 0.0,
+        "Active Std": 0.0,
+        "Active Max": 0.0,
+        "Active Min": 0.0,
+        "Idle Mean": 0.0,
+        "Idle Std": 0.0,
+        "Idle Max": 0.0,
+        "Idle Min": 0.0,
+        "Fwd Avg Bytes/Bulk": 0.0,
+        "Fwd Avg Packets/Bulk": 0.0,
+        "Fwd Avg Bulk Rate": 0.0,
+        "Bwd Avg Bytes/Bulk": 600.0,
+        "Bwd Avg Packets/Bulk": 6.0,
+        "Bwd Avg Bulk Rate": 1200.0
+      },
+      "python": {
+        "Active Mean": 0.0,
+        "Active Std": 0.0,
+        "Active Max": 0.0,
+        "Active Min": 0.0,
+        "Idle Mean": 0.0,
+        "Idle Std": 0.0,
+        "Idle Max": 0.0,
+        "Idle Min": 0.0,
+        "Fwd Avg Bytes/Bulk": 600.0,
+        "Fwd Avg Packets/Bulk": 6.0,
+        "Fwd Avg Bulk Rate": 1200.0,
+        "Bwd Avg Bytes/Bulk": 0.0,
+        "Bwd Avg Packets/Bulk": 0.0,
+        "Bwd Avg Bulk Rate": 0.0
+      }
+    },
+    {
+      "name": "bulk_mixed.csv",
+      "java": {
+        "Active Mean": 0.0,
+        "Active Std": 0.0,
+        "Active Max": 0.0,
+        "Active Min": 0.0,
+        "Idle Mean": 0.0,
+        "Idle Std": 0.0,
+        "Idle Max": 0.0,
+        "Idle Min": 0.0,
+        "Fwd Avg Bytes/Bulk": 0.0,
+        "Fwd Avg Packets/Bulk": 0.0,
+        "Fwd Avg Bulk Rate": 0.0,
+        "Bwd Avg Bytes/Bulk": 800.0,
+        "Bwd Avg Packets/Bulk": 6.0,
+        "Bwd Avg Bulk Rate": 1600.0
+      },
+      "python": {
+        "Active Mean": 0.0,
+        "Active Std": 0.0,
+        "Active Max": 0.0,
+        "Active Min": 0.0,
+        "Idle Mean": 0.0,
+        "Idle Std": 0.0,
+        "Idle Max": 0.0,
+        "Idle Min": 0.0,
+        "Fwd Avg Bytes/Bulk": 0.0,
+        "Fwd Avg Packets/Bulk": 0.0,
+        "Fwd Avg Bulk Rate": 0.0,
+        "Bwd Avg Bytes/Bulk": 0.0,
+        "Bwd Avg Packets/Bulk": 0.0,
+        "Bwd Avg Bulk Rate": 0.0
+      }
+    }
+  ],
+  "checks": [
+    {
+      "check": "active_idle:active_idle.csv:Active Mean",
+      "passed": true,
+      "java": 1000000.0,
+      "python": 1000000.0
+    },
+    {
+      "check": "active_idle:active_idle.csv:Active Std",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:active_idle.csv:Active Max",
+      "passed": true,
+      "java": 1000000.0,
+      "python": 1000000.0
+    },
+    {
+      "check": "active_idle:active_idle.csv:Active Min",
+      "passed": true,
+      "java": 1000000.0,
+      "python": 1000000.0
+    },
+    {
+      "check": "active_idle:active_idle.csv:Idle Mean",
+      "passed": true,
+      "java": 8500000.0,
+      "python": 8500000.0
+    },
+    {
+      "check": "active_idle:active_idle.csv:Idle Std",
+      "passed": true,
+      "java": 3535533.9059327375,
+      "python": 3535533.9059327375
+    },
+    {
+      "check": "active_idle:active_idle.csv:Idle Max",
+      "passed": true,
+      "java": 11000000.0,
+      "python": 11000000.0
+    },
+    {
+      "check": "active_idle:active_idle.csv:Idle Min",
+      "passed": true,
+      "java": 6000000.0,
+      "python": 6000000.0
+    },
+    {
+      "check": "bulk:active_idle.csv:all_zero",
+      "passed": true,
+      "java_fwd": {
+        "Fwd Avg Bytes/Bulk": 0.0,
+        "Fwd Avg Packets/Bulk": 0.0,
+        "Fwd Avg Bulk Rate": 0.0
+      },
+      "java_bwd": {
+        "Bwd Avg Bytes/Bulk": 0.0,
+        "Bwd Avg Packets/Bulk": 0.0,
+        "Bwd Avg Bulk Rate": 0.0
+      },
+      "python_fwd": {
+        "Fwd Avg Bytes/Bulk": 0.0,
+        "Fwd Avg Packets/Bulk": 0.0,
+        "Fwd Avg Bulk Rate": 0.0
+      },
+      "python_bwd": {
+        "Bwd Avg Bytes/Bulk": 0.0,
+        "Bwd Avg Packets/Bulk": 0.0,
+        "Bwd Avg Bulk Rate": 0.0
+      }
+    },
+    {
+      "check": "active_idle:bulk_fwd.csv:Active Mean",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_fwd.csv:Active Std",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_fwd.csv:Active Max",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_fwd.csv:Active Min",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_fwd.csv:Idle Mean",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_fwd.csv:Idle Std",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_fwd.csv:Idle Max",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_fwd.csv:Idle Min",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "bulk:bulk_fwd.csv:reference_forward_is_zero",
+      "passed": true,
+      "java_fwd": {
+        "Fwd Avg Bytes/Bulk": 0.0,
+        "Fwd Avg Packets/Bulk": 0.0,
+        "Fwd Avg Bulk Rate": 0.0
+      }
+    },
+    {
+      "check": "bulk:bulk_fwd.csv:python_forward_equals_reference_backward",
+      "passed": true,
+      "python_fwd": {
+        "Fwd Avg Bytes/Bulk": 600.0,
+        "Fwd Avg Packets/Bulk": 6.0,
+        "Fwd Avg Bulk Rate": 1200.0
+      },
+      "java_bwd": {
+        "Bwd Avg Bytes/Bulk": 600.0,
+        "Bwd Avg Packets/Bulk": 6.0,
+        "Bwd Avg Bulk Rate": 1200.0
+      }
+    },
+    {
+      "check": "bulk:bulk_fwd.csv:python_backward_is_zero",
+      "passed": true,
+      "python_bwd": {
+        "Bwd Avg Bytes/Bulk": 0.0,
+        "Bwd Avg Packets/Bulk": 0.0,
+        "Bwd Avg Bulk Rate": 0.0
+      }
+    },
+    {
+      "check": "active_idle:bulk_mixed.csv:Active Mean",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_mixed.csv:Active Std",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_mixed.csv:Active Max",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_mixed.csv:Active Min",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_mixed.csv:Idle Mean",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_mixed.csv:Idle Std",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_mixed.csv:Idle Max",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "active_idle:bulk_mixed.csv:Idle Min",
+      "passed": true,
+      "java": 0.0,
+      "python": 0.0
+    },
+    {
+      "check": "bulk:bulk_mixed.csv:reference_forward_is_zero",
+      "passed": true,
+      "java_fwd": {
+        "Fwd Avg Bytes/Bulk": 0.0,
+        "Fwd Avg Packets/Bulk": 0.0,
+        "Fwd Avg Bulk Rate": 0.0
+      }
+    },
+    {
+      "check": "bulk:bulk_mixed.csv:reference_backward_nonzero",
+      "passed": true,
+      "java_bwd": {
+        "Bwd Avg Bytes/Bulk": 800.0,
+        "Bwd Avg Packets/Bulk": 6.0,
+        "Bwd Avg Bulk Rate": 1600.0
+      }
+    },
+    {
+      "check": "bulk:bulk_mixed.csv:python_all_zero",
+      "passed": true,
+      "python_fwd": {
+        "Fwd Avg Bytes/Bulk": 0.0,
+        "Fwd Avg Packets/Bulk": 0.0,
+        "Fwd Avg Bulk Rate": 0.0
+      },
+      "python_bwd": {
+        "Bwd Avg Bytes/Bulk": 0.0,
+        "Bwd Avg Packets/Bulk": 0.0,
+        "Bwd Avg Bulk Rate": 0.0
+      }
+    }
+  ],
+  "passed": true
+}

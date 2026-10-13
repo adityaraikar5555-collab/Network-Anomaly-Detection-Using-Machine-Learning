@@ -1,0 +1,2 @@
+# Optional dependencies for reading saved PCAP/PCAPNG files and running PCAP validation tests.
+scapy>=2.5.0

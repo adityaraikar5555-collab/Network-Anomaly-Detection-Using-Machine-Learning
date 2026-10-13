@@ -1,0 +1,67 @@
+{
+  "pcap": "http.cap",
+  "pcap_filename": "http.cap",
+  "pcap_sha256": "25a72bdf10339f2c29916920c8b9501d294923108de8f29b19aba7cc001ab60d",
+  "pcap_size_bytes": 25803,
+  "packet_count": 43,
+  "flow_count": 3,
+  "skipped_unsupported": 0,
+  "skipped_malformed": 0,
+  "schema_ok": true,
+  "schema_errors": [],
+  "flows": [
+    {
+      "flow_index": 0,
+      "src": "145.254.160.237:3372",
+      "dst": "65.208.228.223:80",
+      "protocol": 6,
+      "packets": 34,
+      "fwd_packets": 16,
+      "bwd_packets": 18,
+      "prediction": "BENIGN",
+      "confidence": 0.9011,
+      "model": "cicids_random_forest"
+    },
+    {
+      "flow_index": 1,
+      "src": "145.254.160.237:3009",
+      "dst": "145.253.2.203:53",
+      "protocol": 17,
+      "packets": 2,
+      "fwd_packets": 1,
+      "bwd_packets": 1,
+      "prediction": "BENIGN",
+      "confidence": 0.9819,
+      "model": "cicids_random_forest"
+    },
+    {
+      "flow_index": 2,
+      "src": "145.254.160.237:3371",
+      "dst": "216.239.59.99:80",
+      "protocol": 6,
+      "packets": 7,
+      "fwd_packets": 3,
+      "bwd_packets": 4,
+      "prediction": "BENIGN",
+      "confidence": 0.9439,
+      "model": "cicids_random_forest"
+    }
+  ],
+  "label_counts": {
+    "BENIGN": 3,
+    "ATTACK": 0
+  },
+  "model_path": "models/cicids_anomaly_model.pkl",
+  "encoder_path": "models/cicids_label_encoder.pkl",
+  "errors": [],
+  "command": "python scripts/validate_pcap.py --pcap http.cap --json reports/pcap_validation_report.json --markdown reports/pcap_validation_report.md",
+  "generated_at": "2026-10-13T13:25:25+00:00",
+  "environment": {
+    "python": "3.13.5",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "scapy": "2.8.0",
+    "scikit-learn": "1.8.0",
+    "numpy": "2.4.4",
+    "pandas": "3.0.2"
+  }
+}

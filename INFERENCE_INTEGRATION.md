@@ -1,190 +1,268 @@
-# CICIDS-2017 ML Inference Integration & Completion Report
+# CICIDS-2017 Live ML Inference Integration
 
-## 1. Overview & Architecture
+This document describes the **live** pipeline that turns captured packets into
+the exact 78 features expected by the existing trained CICIDS-2017 Random Forest
+model, and the validation performed to prove that compatibility.
 
-This document summarizes the reusable Machine Learning inference layer implemented for the **CICIDS-2017 Random Forest Model**. It provides the integration contract for the backend/FastAPI service and risk scoring engine.
+## 1. Pipeline
 
 ```text
-Network Traffic Flow Features
-            ↓
-    src/prediction.py
- (Validation & Preprocessing)
-            ↓
- cicids_anomaly_model.pkl
-            ↓
-  Prediction + Confidence
-            ↓
-FastAPI Backend / Risk Scoring
+Real PCAP / PCAPNG capture file
+        ↓   src/pcap_reader.py  (Scapy-based reader; saved captures only, not live sniffing)
+PacketRecord
+        ↓   src/flow_extractor.py
+FlowExtractor  →  NetworkFlow
+        ↓   NetworkFlow.extract_features()   (78 features, canonical order/units)
+src/prediction.py  →  validate_and_preprocess_cicids()
+        ↓
+models/cicids_anomaly_model.pkl  (existing model, NOT retrained)
+models/cicids_label_encoder.pkl
+        ↓
+{"prediction": "BENIGN" | "ATTACK", "confidence": 0.0 - 1.0, "model": "cicids_random_forest"}
 ```
 
----
+`predict_flow(flow)` in `src/prediction.py` is the end-to-end entry point:
+`predict_flow(flow)` == `predict_cicids(flow.extract_features())`.
 
-## 2. Completed Requirements Checklist
+`scripts/validate_pcap.py` runs the whole path on a saved capture and writes a
+JSON report and (with `--markdown`) a Markdown report, both rendered from the
+same result object.
 
-- [x] **Repository Inspection**: Analyzed CICIDS preprocessing, training script, evaluation pipeline, and serialized `.pkl` models.
-- [x] **Label Mapping Verification**:
-  - `0` $\rightarrow$ **`ATTACK`**
-  - `1` $\rightarrow$ **`BENIGN`**
-  (Verified directly against `models/cicids_label_encoder.pkl`).
-- [x] **Exact Feature Order (78 Features)**: Extracted and codified from `rf.feature_names_in_`.
-- [x] **Inference Module (`src/prediction.py`)**:
-  - Reusable `predict_cicids(features)` function.
-  - In-memory model artifact caching (`load_cicids_artifacts`) to avoid repeated disk reads.
-  - Strict validation against missing, extra, malformed, or non-numeric/NaN/Inf values.
-  - Preprocessing aligns keys (whitespace stripping) and outputs a single-row DataFrame matching training specs.
-- [x] **Stable Output Format**: Returns a clean, JSON-serializable dictionary with `prediction`, `confidence`, and `model`.
-- [x] **Unit Testing Suite (`tests/test_prediction.py`)**: 11 unit tests covering valid inputs, sequence inputs, key whitespace tolerance, pandas objects, missing features, extra features, invalid types, and non-finite values.
-- [x] **Untouched Core Files**: Existing training, evaluation, and model files were preserved without modification.
+## 2. Canonical 78-Feature Schema
 
----
+The single source of truth is **`src/cicids_features.py`**
+(`CICIDS_FEATURE_NAMES`). It is imported by both
+`src/flow_extractor.py` and `src/prediction.py`, so the extractor and the
+inference validator can never drift apart.
 
-## 3. Model & Feature Specifications
+The order was not assumed from a generic CICIDS list: it was verified directly
+against `models/cicids_anomaly_model.pkl` via
+`RandomForestClassifier.feature_names_in_`, which was produced by
+`df.drop("Label", axis=1)` on the CICIDS-2017 `MachineLearningCSV` files
+(i.e. the CSV column order). `tests/test_flow_extractor.py` asserts the extractor
+output order equals both the shared constant **and** the model artifact order.
 
-- **Model Type**: `RandomForestClassifier` (100 estimators, max depth 20)
-- **Model Path**: `models/cicids_anomaly_model.pkl`
-- **Label Encoder Path**: `models/cicids_label_encoder.pkl`
-- **Number of Features**: 78
-- **Feature Names & Order**:
-  1. `Destination Port`
-  2. `Flow Duration`
-  3. `Total Fwd Packets`
-  4. `Total Backward Packets`
-  5. `Total Length of Fwd Packets`
-  6. `Total Length of Bwd Packets`
-  7. `Fwd Packet Length Max`
-  8. `Fwd Packet Length Min`
-  9. `Fwd Packet Length Mean`
-  10. `Fwd Packet Length Std`
-  11. `Bwd Packet Length Max`
-  12. `Bwd Packet Length Min`
-  13. `Bwd Packet Length Mean`
-  14. `Bwd Packet Length Std`
-  15. `Flow Bytes/s`
-  16. `Flow Packets/s`
-  17. `Flow IAT Mean`
-  18. `Flow IAT Std`
-  19. `Flow IAT Max`
-  20. `Flow IAT Min`
-  21. `Fwd IAT Total`
-  22. `Fwd IAT Mean`
-  23. `Fwd IAT Std`
-  24. `Fwd IAT Max`
-  25. `Fwd IAT Min`
-  26. `Bwd IAT Total`
-  27. `Bwd IAT Mean`
-  28. `Bwd IAT Std`
-  29. `Bwd IAT Max`
-  30. `Bwd IAT Min`
-  31. `Fwd PSH Flags`
-  32. `Bwd PSH Flags`
-  33. `Fwd URG Flags`
-  34. `Bwd URG Flags`
-  35. `Fwd Header Length`
-  36. `Bwd Header Length`
-  37. `Fwd Packets/s`
-  38. `Bwd Packets/s`
-  39. `Min Packet Length`
-  40. `Max Packet Length`
-  41. `Packet Length Mean`
-  42. `Packet Length Std`
-  43. `Packet Length Variance`
-  44. `FIN Flag Count`
-  45. `SYN Flag Count`
-  46. `RST Flag Count`
-  47. `PSH Flag Count`
-  48. `ACK Flag Count`
-  49. `URG Flag Count`
-  50. `CWE Flag Count`
-  51. `ECE Flag Count`
-  52. `Down/Up Ratio`
-  53. `Average Packet Size`
-  54. `Avg Fwd Segment Size`
-  55. `Avg Bwd Segment Size`
-  56. `Fwd Header Length.1`
-  57. `Fwd Avg Bytes/Bulk`
-  58. `Fwd Avg Packets/Bulk`
-  59. `Fwd Avg Bulk Rate`
-  60. `Bwd Avg Bytes/Bulk`
-  61. `Bwd Avg Packets/Bulk`
-  62. `Bwd Avg Bulk Rate`
-  63. `Subflow Fwd Packets`
-  64. `Subflow Fwd Bytes`
-  65. `Subflow Bwd Packets`
-  66. `Subflow Bwd Bytes`
-  67. `Init_Win_bytes_forward`
-  68. `Init_Win_bytes_backward`
-  69. `act_data_pkt_fwd`
-  70. `min_seg_size_forward`
-  71. `Active Mean`
-  72. `Active Std`
-  73. `Active Max`
-  74. `Active Min`
-  75. `Idle Mean`
-  76. `Idle Std`
-  77. `Idle Max`
-  78. `Idle Min`
+Order (index 1-78):
 
----
+| # | Feature | # | Feature | # | Feature |
+|---|---------|---|---------|---|---------|
+| 1 | Destination Port | 28 | Bwd IAT Std | 55 | Fwd Header Length.1 |
+| 2 | Flow Duration | 29 | Bwd IAT Max | 56 | Fwd Avg Bytes/Bulk |
+| 3 | Total Fwd Packets | 30 | Bwd IAT Min | 57 | Fwd Avg Packets/Bulk |
+| 4 | Total Backward Packets | 31 | Fwd PSH Flags | 58 | Fwd Avg Bulk Rate |
+| 5 | Total Length of Fwd Packets | 32 | Bwd PSH Flags | 59 | Bwd Avg Bytes/Bulk |
+| 6 | Total Length of Bwd Packets | 33 | Fwd URG Flags | 60 | Bwd Avg Packets/Bulk |
+| 7 | Fwd Packet Length Max | 34 | Bwd URG Flags | 61 | Bwd Avg Bulk Rate |
+| 8 | Fwd Packet Length Min | 35 | Fwd Header Length | 62 | Subflow Fwd Packets |
+| 9 | Fwd Packet Length Mean | 36 | Bwd Header Length | 63 | Subflow Fwd Bytes |
+| 10 | Fwd Packet Length Std | 37 | Fwd Packets/s | 64 | Subflow Bwd Packets |
+| 11 | Bwd Packet Length Max | 38 | Bwd Packets/s | 65 | Subflow Bwd Bytes |
+| 12 | Bwd Packet Length Min | 39 | Min Packet Length | 66 | Init_Win_bytes_forward |
+| 13 | Bwd Packet Length Mean | 40 | Max Packet Length | 67 | Init_Win_bytes_backward |
+| 14 | Bwd Packet Length Std | 41 | Packet Length Mean | 68 | act_data_pkt_fwd |
+| 15 | Flow Bytes/s | 42 | Packet Length Std | 69 | min_seg_size_forward |
+| 16 | Flow Packets/s | 43 | Packet Length Variance | 70 | Active Mean |
+| 17 | Flow IAT Mean | 44 | FIN Flag Count | 71 | Active Std |
+| 18 | Flow IAT Std | 45 | SYN Flag Count | 72 | Active Max |
+| 19 | Flow IAT Max | 46 | RST Flag Count | 73 | Active Min |
+| 20 | Flow IAT Min | 47 | PSH Flag Count | 74 | Idle Mean |
+| 21 | Fwd IAT Total | 48 | ACK Flag Count | 75 | Idle Std |
+| 22 | Fwd IAT Mean | 49 | URG Flag Count | 76 | Idle Max |
+| 23 | Fwd IAT Std | 50 | CWE Flag Count | 77 | Idle Min |
+| 24 | Fwd IAT Max | 51 | ECE Flag Count | | |
+| 25 | Fwd IAT Min | 52 | Down/Up Ratio | | |
+| 26 | Bwd IAT Total | 53 | Average Packet Size | | |
+| 27 | Bwd IAT Mean | 54 | Avg Fwd Segment Size | | |
 
-## 4. API Reference
+## 3. Unit & Meaning Assumptions
 
-### `predict_cicids(features, model=None, label_encoder=None) -> dict`
+| Quantity | Unit / meaning |
+|----------|----------------|
+| `PacketRecord.timestamp` | **seconds** (float, e.g. `time.time()`) |
+| `Flow Duration`, all `*IAT*` | **microseconds** (× 1,000,000), matching CICIDS-2017 |
+| `Active *`, `Idle *` | **microseconds**; active/idle split threshold = **5.0 s** (CICFlowMeter `ACTIVE_TIMEOUT`) |
+| `Flow Bytes/s`, `Flow Packets/s`, `Fwd/Bwd Packets/s` | per **second** |
+| Packet/segment lengths, header lengths, window bytes | bytes |
+| Flag counts | packet counts (no scaling) |
 
-Main entry point for single-record prediction.
+There is **no feature scaling** anywhere. The training pipeline
+(`src/cicids_preprocessing.py` / the notebook) only strips column whitespace,
+replaces ±Inf with NaN, drops NaN rows, and binarises the label
+(`BENIGN` vs `ATTACK`) with a `LabelEncoder` (`classes_ = ['ATTACK', 'BENIGN']`,
+so `0 → ATTACK`, `1 → BENIGN`). Inference therefore feeds raw values directly.
 
-- **Parameters**:
-  - `features`: Dictionary of `{feature_name: value}`, pandas Series/DataFrame (1 row), or 78-element list/numpy array.
-  - `model` *(optional)*: Pre-loaded scikit-learn model instance.
-  - `label_encoder` *(optional)*: Pre-loaded scikit-learn LabelEncoder instance.
-- **Returns**:
-  ```python
-  {
-      "prediction": "BENIGN",  # or "ATTACK"
-      "confidence": 0.9323,
-      "model": "cicids_random_forest"
-  }
-  ```
-- **Exceptions Raised**:
-  - `ValueError`: On missing/extra features, wrong feature counts, or NaN/Inf/None values.
-  - `TypeError`: On non-numeric values or unsupported data types.
+## 4. What Was Fixed
 
----
+1. **Missing feature** — `tcp_flag_and_rate_features()` omitted `Fwd PSH Flags`
+   (the property existed but was never emitted), producing **77** features.
+   Added it, restoring exactly **78**.
+2. **No canonical assembly / ordering** — the extractor exposed per-chunk dicts
+   only. Added `NetworkFlow.extract_features()` (ordered by
+   `CICIDS_FEATURE_NAMES`, validated for missing/extra keys) and
+   `NetworkFlow.to_feature_vector()`, plus `FlowExtractor.extract_flow_features()`
+   and `FlowExtractor.get_feature_vectors()`.
+3. **Unit mismatch** — time features (`Flow Duration`, all IATs, Active/Idle)
+   were emitted in **seconds**; CICIDS-2017 uses **microseconds**. Converted
+   them to microseconds while keeping rate features per-second.
+4. **Non-finite handling** — `extract_features()` does **not** silently coerce
+   invalid values. Every legitimate fallback (zero denominators, insufficient
+   observations, empty directions) yields a defined zero; if a value is still
+   `NaN`/`±Inf` afterwards it indicates invalid input or an unguarded
+   computation, and `NonFiniteFeatureError` is raised with per-feature
+   diagnostics (`NetworkFlow.feature_diagnostics()`). Unexpected NaN/Inf values
+   are never silently converted to `0.0`; division-by-zero is guarded throughout.
+5. **Single schema definition** — extracted `CICIDS_FEATURE_NAMES` into
+   `src/cicids_features.py`; `src/prediction.py` re-exports it for backward
+   compatibility.
+6. **Payload-driven features** — `act_data_pkt_fwd` and `min_seg_size_forward`
+   are computed from the L4 payload, matching the reference definitions.
+7. **Active/Idle & Bulk alignment** — `_active_idle_periods()` omits the trailing
+   unclosed active period and `_statistics()` uses the sample standard deviation
+   (N−1); `_bulk_features()` follows the reference state machine (payload-only,
+   1.0 s clump timeout, `BULK_BOUND = 4`, directional interleaving reset).
 
-## 5. FastAPI Integration Example
+The model (`models/cicids_anomaly_model.pkl`) and label encoder
+(`models/cicids_label_encoder.pkl`) were **not retrained or replaced**.
+
+## 5. Prediction Output
 
 ```python
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import Dict, Any
-from src.prediction import predict_cicids, load_cicids_artifacts
+from src.flow_extractor import FlowExtractor, PacketRecord
+from src.prediction import predict_flow
 
-app = FastAPI(title="Network Intrusion Detection API")
+extractor = FlowExtractor()
+extractor.add_packet(PacketRecord(timestamp=..., src_ip=..., ...))
+flow = extractor.get_flows()[0]
 
-# Preload model artifacts on startup
-@app.on_event("startup")
-def startup_event():
-    load_cicids_artifacts()
-
-class FlowFeaturesRequest(BaseModel):
-    features: Dict[str, Any]
-
-@app.post("/api/v1/predict")
-def predict_network_traffic(payload: FlowFeaturesRequest):
-    try:
-        result = predict_cicids(payload.features)
-        return result
-    except (ValueError, TypeError) as err:
-        raise HTTPException(status_code=422, detail=str(err))
-    except Exception as err:
-        raise HTTPException(status_code=500, detail="Internal inference error")
+predict_flow(flow)
+# {'prediction': 'BENIGN', 'confidence': 0.9519, 'model': 'cicids_random_forest'}
 ```
 
----
+`confidence` is `predict_proba` for the predicted class, in `[0.0, 1.0]`.
 
-## 6. Running Tests
+## 6. Scapy Installation and PCAP Reader Setup
 
-To run the automated test suite:
+The PCAP/PCAPNG reader uses Scapy as an optional dependency. The base feature-extraction and inference code can be imported without Scapy, but saved-capture ingestion, `scripts/validate_pcap.py`, and the PCAP-reader tests require it. From the repository root, install the PCAP extras with:
+
+```bash
+python -m pip install -r requirements-pcap.txt
+```
+
+Then validate a saved capture and write a JSON report:
+
+```bash
+python scripts/validate_pcap.py --pcap path/to/capture.pcapng --json reports/wlan_validation.json
+```
+
+The adapter supports saved PCAP/PCAPNG files only. Continuous live-interface capture is pending integration and is not part of this implementation.
+
+## 7. Tests Performed
 
 ```bash
 python -m unittest discover -s tests
+# Ran 88 tests ... OK
 ```
+
+- `tests/test_flow_extractor.py` (49 tests): exactly 78 features; names match the
+  schema; **order matches both the shared schema and `model.feature_names_in_`**;
+  all values numeric; no NaN/Inf; the model accepts the extracted vector/dict;
+  prediction ∈ {BENIGN, ATTACK}; confidence ∈ [0, 1]; deterministic extraction;
+  `Fwd PSH Flags` present and correct; microsecond duration; TCP flag counts;
+  payload-driven features; 8 bulk regression scenarios; 7 Active/Idle regression
+  scenarios; non-finite rejection; packet validation.
+- `tests/test_prediction.py` (13 tests): artifact loading, dict/sequence/array/
+  pandas inputs, missing/extra feature rejection, non-numeric/NaN/Inf/None
+  rejection, and deterministic `0 → ATTACK` / `1 → BENIGN` decoding.
+- `tests/test_pcap_reader.py` (19 tests): packet→record conversion, unsupported
+  filtering, malformed counting, `max_packets`, bidirectional grouping, capture
+  error handling, end-to-end `validate_capture`, capture-metadata embedding,
+  Markdown/JSON consistency, and PCAPNG support.
+- `tests/test_reference_parity.py` (7 tests): pins Active/Idle and bulk features
+  to real Java reference output recorded in `reports/java_reference_parity.json`.
+
+These tests use **synthetic in-memory flows** and do not depend on any committed
+PCAP or CICIDS dataset file. `tests/test_reference_parity.py` additionally
+depends on the committed Java-reference evidence artifact (not on a JDK at test
+time).
+
+## 8. Real-Capture Validation
+
+`src/pcap_reader.py` ingests saved classic libpcap (microsecond/nanosecond,
+big/little endian) and PCAPNG captures via Scapy, and `scripts/validate_pcap.py`
+runs the full `capture → features → model` path. The genuine public Wireshark
+sample capture `http.cap` (SHA-256
+`25a72bdf10339f2c29916920c8b9501d294923108de8f29b19aba7cc001ab60d`) was
+processed end-to-end: 43 usable packets, 3 flows, 0 skipped/malformed, 100%
+schema match, all `BENIGN` (90.11%–98.19% confidence). Both
+`reports/pcap_validation_report.json` and `reports/pcap_validation_report.md`
+are generated from the same result object.
+
+> **Scope note:** `http.cap` is a *public Wireshark sample*, not the requested
+> saved WLAN capture. The requested WLAN validation is **BLOCKED** until that
+> capture is supplied; no WLAN report has been generated. See
+> `REQUIREMENTS_COMPLIANCE.md` §7.
+
+## 9. Reference Verification (Runtime, Java)
+
+Active/Idle and bulk-transfer semantics were validated **numerically at
+runtime** against the pinned upstream Java CICFlowMeter sources
+(`ahlashkari/CICFlowMeter` commit
+`98a5ebad0df579cc8b43eedd3421b3ae87699901`). The unmodified sources
+`BasicFlow.java`, `BasicPacketInfo.java`, `IdGenerator.java` and
+`DateFormatter.java` are compiled with a real JDK (Temurin 21) together with
+`scripts/java_reference_parity/ParityHarness.java`, which drives
+`BasicFlow.updateActiveIdleTime` / `BasicFlow.addPacket` on deterministic
+scenarios and reads the feature getters. Packet capture / jnetpcap decoding is
+**not** exercised — this validates the reference *feature arithmetic*, not its
+decoder.
+
+Reproduce and inspect:
+
+```
+python scripts/java_reference_parity.py --json reports/java_reference_parity.json
+```
+
+Evidence: `reports/java_reference_parity.json` (reference commit, JDK version,
+per-scenario Java vs Python values, and pass/fail checks).
+`tests/test_reference_parity.py` pins the current implementation to that
+recorded output.
+
+**Findings**
+
+- **Active/Idle — exact numeric match.** All eight Active/Idle features agree
+  with the Java reference to 1e-9 on every scenario. Confirmed semantics:
+  intra-flow active threshold **5.0 s** (`ACTIVE_TIMEOUT`); sample standard
+  deviation (N−1, Apache Commons Math); the trailing active period at flow
+  termination is **not** recorded upstream (the `endActiveIdleTime` call is
+  commented out).
+- **Bulk — arithmetic identical, direction routing deviates.** The reference
+  state machine (payload-only participation, **1.0 s** clump timeout,
+  `BULK_BOUND = 4`, directional interleaving reset) reconciles exactly with our
+  implementation: on a single-direction flow our *forward* bulk triple equals
+  the reference's *backward* triple element-wise (`600 / 6 / 1200`).
+- **Confirmed upstream defect:** `updateFlowBulk` selects direction with
+  `this.src == packet.getSrc()`, a reference comparison against a fresh
+  `Arrays.copyOf` array, which is **always false** in this revision. At runtime
+  the reference therefore reports forward bulk `0 / 0 / 0` and accumulates
+  *every* payload packet into the backward counters. An interleaved flow makes
+  the reference synthesise a spurious backward bulk (`800 / 6 / 1600`) while
+  correct per-direction semantics (ours) yield no bulk. Our extractor
+  implements the **intended** per-direction behaviour instead.
+- **Remaining deviations (documented, not hidden):** upstream length statistics
+  use L4 payload bytes and the TCP header length only, whereas this extractor
+  uses full frame length and IP+TCP header lengths (consistent with CICIDS-2017
+  CSV semantics); and our bulk averages use floating-point division where the
+  reference truncates via integer division.
+
+## 10. Known Limitations
+
+- Live-interface sniffing is **not** implemented; only saved capture files are
+  read.
+- Reference verification executes the reference *feature code* in a JVM but does
+  not exercise the reference packet decoder (libpcap/jnetpcap), so parity with
+  the full Java tool on real captures is not claimed. Active/Idle matches
+  exactly; bulk direction intentionally follows the documented intended
+  semantics rather than the upstream routing defect.
+- BENIGN/ATTACK accuracy on real traffic was **not** measured against labelled
+  data; `http.cap` contains only normal traffic, so all flows being `BENIGN` is
+  expected but is not an accuracy measurement.
