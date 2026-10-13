@@ -13,9 +13,9 @@ trained on — without retraining or replacing the model.
 
 | Area | Result |
 |------|--------|
-| Extractor → model feature compatibility | **MET** (proven via code + tests) |
-| Saved-WLAN-PCAP end-to-end testing | **PENDING** — the requested WLAN capture is not available in this workspace; the existing report is for public `http.cap` only |
-| Pull request creation | **MET** (PR #4 open on `glenjr009/network-traffic-anomaly-detector`) |
+| Extractor → model feature compatibility | **PASS** (proven via code + tests + live model artifact) |
+| Saved-WLAN-PCAP end-to-end testing | **BLOCKED** — the requested WLAN capture is not present in this workspace; the available report is for public `http.cap` only |
+| Pull request in this repository | **BLOCKED** — no PR exists in `adityaraikar5555-collab/...`; the only PR (#4) lives in the collaborator repo `glenjr009/...` (see §7) |
 
 Core requirement is satisfied: `flow_extractor.py` now emits **exactly the 78
 training features** (names, order, units, meaning) and the existing Random Forest
@@ -27,17 +27,17 @@ accepts them and returns BENIGN/ATTACK + confidence.
 
 | Task step | Status | Evidence |
 |-----------|--------|----------|
-| 1. Sync with latest main / verify `0737fc3` | PARTIAL | `0737fc3` is **not** on `origin/main` (the URL provided); it exists on `collab/main`. Work performed from `collab/main` and discrepancy documented. |
+| 1. Sync with latest main / verify `0737fc3` | PASS | Fetched `origin` + `collab`; consolidated the divergent `fix/live-ml-inference` histories via merge (no force-push, no reset). `0737fc3` is **not** on `origin/main`; it exists on `collab/main` — documented, not hidden. |
 | 2. Understand existing training pipeline | MET | Schema taken from `model.feature_names_in_`, `src/cicids_preprocessing.py`, `notebooks/cicids2017_model_train.ipynb`. |
 | 3. Validate all 78 features | MET | Full per-feature diff. Found `Fwd PSH Flags` missing (output was **77**), and time-unit mismatch (seconds vs microseconds). |
 | 4. Fix the extractor | MET | 78 features, deterministic canonical order, explicit schema, microseconds, assembly API added; invalid non-finite feature values raise `NonFiniteFeatureError` rather than being coerced to zero. |
 | 5. Integrate with existing model | MET | `predict_flow(flow)` added; `.pkl` artifacts untouched. |
 | 6. Test with the saved WLAN PCAP | **BLOCKED** | `scripts/validate_pcap.py` must be run against the user's saved WLAN capture; it is not present in this workspace. The checked-in report documents only the public `http.cap`, not the WLAN capture. |
 | 7. Add/update tests | MET | Fresh full-suite run on the consolidated branch: 88 tests pass (unit, PCAP, inference, and Java-reference parity suites). |
-| 8. Document the validation | MET | `INFERENCE_INTEGRATION.md`, `LIVE_ML_INFERENCE_UPDATES.md`. |
-| 9. Quality check | PARTIAL | Current source rejects non-finite feature values with diagnostics. A fresh compile/test run and requested WLAN capture validation remain pending. |
-| 10. Commit (branch only) | MET | Commits on `fix/live-ml-inference`. |
-| 11. Pull Request (`fix/live-ml-inference` → `main`) | MET | PR #4 is open on `glenjr009/network-traffic-anomaly-detector`; the branch also exists on the user remote, which shares no history. |
+| 8. Document the validation | PASS | `INFERENCE_INTEGRATION.md`, `LIVE_ML_INFERENCE_UPDATES.md`, this report. |
+| 9. Quality check | PASS (WLAN blocked) | Fresh full-suite run (88 pass, 0 skip), fresh runtime Java parity (all checks pass), full documentation vs. source review. Requested WLAN capture validation remains **BLOCKED** (input missing). |
+| 10. Commit (branch only) | PASS | Commits on `fix/live-ml-inference`; see §7 for the head SHA. |
+| 11. Pull Request | BLOCKED | No PR exists in `adityaraikar5555-collab/...`; `gh` is not installed and no API token is available, so the description could not be updated. Compare link provided in §7. |
 
 ---
 
@@ -105,7 +105,7 @@ CICIDS/real traffic
    `this.src == packet.getSrc()` direction check is always false, so its forward bulk
    is structurally zero; our extractor implements the intended per-direction semantics
    (interleaved flow: reference `800 / 6 / 1600` vs ours `0`). Deviation documented in
-   `INFERENCE_INTEGRATION.md` §8 and covered by regression tests.
+   `INFERENCE_INTEGRATION.md` §9 and covered by regression tests.
 4. **Pull request** — PR #4 is on the separate shared repository `glenjr009/network-traffic-anomaly-detector`. No open PR was found in this user's repository during this check. See §7 for the current PR/compare-link status; the WLAN capture and its validation report remain the outstanding blockers.
 
 ---
@@ -120,3 +120,122 @@ python -m pip install -r requirements-pcap.txt
 ```
 
 The adapter supports saved `.pcap` and `.pcapng` files; it does not capture from a live network interface. Continuous live-interface capture remains pending integration. The final handoff is not fully validated until the complete test suite is rerun on the latest branch and `scripts/validate_pcap.py` is run against the saved WLAN capture, with the generated JSON/Markdown report reviewed. Do not commit the capture file.
+
+Dependency check: `requirements-pcap.txt` pins `scapy>=2.5.0`, matching the imports
+(`scapy.layers.inet.{IP,TCP,UDP}`, `scapy.layers.l2.Ether`,
+`scapy.utils.{PcapReader,PcapNgReader}`) and the supported Python 3.11+ target
+(verified on Python 3.13.5 / Scapy 2.8.0).
+
+---
+
+## 7. Final Handoff Results (this run)
+
+Recorded from actual executions on the consolidated branch. Status vocabulary:
+**PASS** / **FAIL** / **BLOCKED** / **NOT APPLICABLE**.
+
+| Item | Result |
+|------|--------|
+| Current branch | `fix/live-ml-inference` |
+| Final head commit | recorded in the follow-up docs commit; see PR/handoff summary |
+| Full test suite | **PASS** — `Ran 88 tests ... OK` (0 failures, 0 errors, 0 skipped) |
+| Java Active/Idle + Bulk parity | **PASS** — fresh runtime reproduction, all checks pass |
+| 78-feature schema vs. model artifact | **PASS** — `model.feature_names_in_ == CICIDS_FEATURE_NAMES` (78/78) |
+| Inference decode + confidence range | **PASS** — `BENIGN`/`ATTACK`, confidence finite in `[0,1]` |
+| Non-finite rejection | **PASS** — unexpected NaN/Inf raise (no silent `0.0` coercion) |
+| Saved `http.cap` validation | **PASS** (public sample, *not* the WLAN capture) |
+| Requested saved-WLAN validation | **BLOCKED** — capture file absent from the workspace |
+| Continuous live-interface capture | **NOT APPLICABLE (pending integration)** — not implemented |
+| PR description update | **BLOCKED** — no PR in this repo; `gh` unavailable |
+
+### 7.1 Test suite (actual)
+
+Command:
+
+```bash
+python -m pip install -r requirements-pcap.txt   # "Requirement already satisfied: scapy ... (2.8.0)"
+python -m unittest discover -s tests -v
+```
+
+Result (actual console tail):
+
+```text
+Ran 88 tests in 6.791s
+
+OK
+```
+
+Environment: Windows 11, Python 3.13.5, Scapy 2.8.0, scikit-learn 1.8.0,
+numpy 2.4.4, pandas 3.0.2. No tests were skipped or deselected.
+
+### 7.2 Schema & inference verification (actual)
+
+```
+model class: RandomForestClassifier
+model feature count: 78
+model == canonical schema: True
+encoder classes: ['ATTACK', 'BENIGN']
+extractor feature count: 78
+extractor order == schema: True
+all finite: True
+prediction: {'prediction': 'BENIGN', 'confidence': 0.9519, 'model': 'cicids_random_forest'}
+confidence finite & 0..1: True
+non-finite rejected with: ValueError
+```
+
+Schema validation proves the vector is *well-formed* and accepted by the model;
+it does **not** prove detection accuracy on labelled traffic.
+
+### 7.3 Saved-capture validation
+
+- Requested WLAN capture: **not found**. The only capture in the workspace is the
+  public Wireshark sample `http.cap` (SHA-256
+  `25a72bdf10339f2c29916920c8b9501d294923108de8f29b19aba7cc001ab60d`), which is
+  **not** a substitute for the WLAN capture. No `reports/wlan_validation.json`
+  or `reports/wlan_validation_report.md` were generated (they would be fabricated).
+- Public sample run (for tooling verification only):
+
+  ```bash
+  python scripts/validate_pcap.py --pcap http.cap --json reports/pcap_validation_report.json --markdown reports/pcap_validation_report.md
+  ```
+
+  Result: 43 usable packets, 0 unsupported, 0 malformed, 3 flows, schema OK,
+  3× `BENIGN` (confidence 0.9011 / 0.9819 / 0.9439). Reports:
+  `reports/pcap_validation_report.json`, `reports/pcap_validation_report.md`.
+
+### 7.4 Active/Idle & Bulk verification (actual)
+
+Command: `python scripts/java_reference_parity.py --json reports/java_reference_parity.json`
+
+The unmodified pinned Java CICFlowMeter sources (commit
+`98a5ebad0df579cc8b43eedd3421b3ae87699901`) were compiled and executed with
+Temurin JDK 21.0.8. `ALL PARITY CHECKS PASSED` (exit 0); all eight Active/Idle
+features match to 1e-9, and the bulk arithmetic relationship is reproduced
+(single-direction forward triple `600 / 6 / 1200` equals the reference backward
+triple; the upstream routing defect is asserted, not hidden). Evidence:
+`reports/java_reference_parity.json`.
+
+### 7.5 Capture-file protection
+
+`git status --short` shows no capture staged. `http.cap` is excluded by
+`.gitignore` (`*.pcap`, `*.pcapng`, `*.cap`) and was **not** committed; `git add .`
+was not used.
+
+### 7.6 Remaining blockers
+
+1. **Saved WLAN capture missing.** Supply the `.pcap`/`.pcapng` file, then run
+   §7.3 with `--pcap <wlan>` and `--json reports/wlan_validation.json
+   --markdown reports/wlan_validation_report.md`.
+2. **No PR in this repository.** Find the compare link in §7.7.
+3. **Continuous live-interface capture** is out of scope and unstarted.
+
+### 7.7 Pull request / compare link
+
+The only associated PR (#4) is in the collaborator repo
+`glenjr009/network-traffic-anomaly-detector`, not in
+`adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning`. No PR
+was created in this repository (and none was updated), because `gh`/API access is
+unavailable here. Intended compare link:
+
+```
+https://github.com/adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning/compare/main...fix/live-ml-inference
+```

@@ -1,9 +1,19 @@
-# Pull Request: Fix Live ML Inference, CICFlowMeter Parity & Real PCAP Validation
+# Pull Request: Fix Live ML Inference, CICFlowMeter Parity & Saved-PCAP Validation
 
 **Branch:** `fix/live-ml-inference` → `main`  
-**Repository:** `glenjr009/network-traffic-anomaly-detector`  
-**PR:** #4 (Fix live ML inference)  
-**Status:** READY FOR REVIEW (DO NOT AUTO-MERGE)
+**Repository:** `adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning`  
+**PR:** none exists in this repository (the only related PR, #4, lives in the collaborator repo `glenjr009/network-traffic-anomaly-detector`)  
+**Status:** DRAFT — saved WLAN capture validation is BLOCKED (capture not supplied)
+
+Intended compare link:
+
+```
+https://github.com/adityaraikar5555-collab/Network-Anomaly-Detection-Using-Machine-Learning/compare/main...fix/live-ml-inference
+```
+
+> This local file is the *proposed* PR description. It was **not** submitted: no
+> PR exists in this repository and `gh`/API access was unavailable. Do not treat
+> this as evidence that a PR was created or updated.
 
 ---
 
@@ -28,7 +38,8 @@ This PR achieves full end-to-end feature compatibility and real-traffic validati
 - **Ingestion Adapter:** Implemented `src/pcap_reader.py` supporting classic libpcap (microsecond/nanosecond, big/little endian) and PCAPNG files without external C libraries (`scapy`).
 - **Validation CLI:** Added `scripts/validate_pcap.py` for automated schema validation and per-flow prediction scoring.
 - **Diagnostic Tool:** Added `scripts/compare_cicflowmeter.py` for cross-validation against the Python `cicflowmeter` package.
-- **Genuine Wireshark Capture Validation:** Ingested official Wireshark sample capture `http.cap` (SHA-256: `25a72bdf10339f2c29916920c8b9501d294923108de8f29b19aba7cc001ab60d`). All 43 packets parsed, 3 flows reconstructed, 100% schema match, all classified as `BENIGN` with 90.11%–98.19% confidence.
+- **Public Wireshark Sample Validation:** Ingested the official Wireshark sample capture `http.cap` (SHA-256: `25a72bdf10339f2c29916920c8b9501d294923108de8f29b19aba7cc001ab60d`). All 43 packets parsed, 3 flows reconstructed, 100% schema match, all classified as `BENIGN` with 90.11%–98.19% confidence. **This is a public sample, not the requested saved WLAN capture.**
+- **Saved WLAN Capture — BLOCKED:** the requested WLAN `.pcap`/`.pcapng` was not present in the workspace, so no WLAN validation was run and no `reports/wlan_validation.*` was generated. Provide the capture to complete this step.
 - **Reproducible Report:** Committed `reports/pcap_validation_report.md` and `reports/pcap_validation_report.json`. Both are rendered from the **same result object** in one run (never hand-edited to agree) and include capture SHA-256, size, model/encoder paths, the exact command, timestamp and environment.
 
 ---
@@ -40,12 +51,14 @@ This PR achieves full end-to-end feature compatibility and real-traffic validati
 - **Time Units:** Microseconds ($10^6$) ✅
 - **Active/Idle Grounding:** Runtime match vs Java CICFlowMeter to 1e-9 ✅
 - **Bulk Calculation:** Runtime comparison vs Java `BasicFlow` (arithmetic identical; routing deviation documented) ✅
-- **Genuine PCAP Ingestion:** 43 packets, 3 flows, 0 errors ✅
-- **Model Predictions on Real PCAP:** 3/3 BENIGN (avg confidence 94.23%) ✅
-- **Test Suite:** **88 tests pass** (`python -m unittest discover -s tests`) ✅
+- **Public PCAP Ingestion (`http.cap`, not WLAN):** 43 packets, 3 flows, 0 errors ✅
+- **Model Predictions (`http.cap`):** 3/3 BENIGN (avg confidence 94.23%) ✅
+- **Test Suite:** **88 tests pass, 0 failures, 0 errors, 0 skipped** (`python -m unittest discover -s tests -v`) ✅
+- **Saved WLAN Capture Validation:** ❌ BLOCKED — capture not supplied
 
 ```
-Ran 88 tests in 3.254s
+Ran 88 tests in 6.791s
+
 OK
 ```
 
@@ -60,11 +73,14 @@ python -m unittest discover tests -v
 # Validate features against the pinned Java CICFlowMeter reference (requires JDK)
 python scripts/java_reference_parity.py --json reports/java_reference_parity.json
 
-# Run real Wireshark PCAP validation (writes both reports from one result object)
-python scripts/validate_pcap.py --pcap http.cap --model models/cicids_anomaly_model.pkl --encoder models/cicids_label_encoder.pkl --json reports/pcap_validation_report.json --markdown reports/pcap_validation_report.md
+# Install the optional PCAP dependency (Scapy)
+python -m pip install -r requirements-pcap.txt
 
-# Run diagnostic CICFlowMeter comparison
-python scripts/compare_cicflowmeter.py --pcap http.cap
+# Run saved-capture validation (writes both reports from one result object)
+python scripts/validate_pcap.py --pcap http.cap --json reports/pcap_validation_report.json --markdown reports/pcap_validation_report.md
+
+# Run the SAME command against the real WLAN capture once it is supplied:
+python scripts/validate_pcap.py --pcap path/to/saved-wlan-capture.pcapng --json reports/wlan_validation.json --markdown reports/wlan_validation_report.md
 ```
 
 ---
@@ -73,7 +89,7 @@ python scripts/compare_cicflowmeter.py --pcap http.cap
 ```
 .gitignore                      (modified - excludes PCAPs, captures, and IDE files)
 INFERENCE_INTEGRATION.md        (updated with Java grounding and PCAP validation)
-REQUIREMENTS_COMPLIANCE.md      (updated - 100% requirements met)
+REQUIREMENTS_COMPLIANCE.md      (updated - schema/inference/tests PASS; WLAN BLOCKED)
 PR_DESCRIPTION.md               (updated)
 reports/pcap_validation_report.md (new - full reproducible report)
 reports/pcap_validation_report.json (new - validation execution payload)
@@ -91,3 +107,21 @@ tests/test_pcap_reader.py       (PCAP parsing unit tests)
 tests/test_prediction.py        (prediction validation tests)
 tests/test_reference_parity.py  (feature parity pinned to recorded Java output)
 ```
+
+---
+
+### Remaining Blockers
+
+- **Saved WLAN capture validation: BLOCKED.** The capture file is required; it is
+  excluded from Git and was not supplied. Run the documented command to produce
+  `reports/wlan_validation.json` / `reports/wlan_validation_report.md`.
+- **PR not created in this repository.** The only related PR (#4) is in the
+  collaborator repo. See the compare link at the top of this file.
+
+### Scope Confirmation
+
+- **Continuous live-interface capture remains PENDING INTEGRATION.** The PCAP
+  adapter reads saved `.pcap`/`.pcapng` files only; it does not sniff a live
+  interface.
+- The trained artifacts (`models/*.pkl`) and the feature schema were **not**
+  retrained or replaced.

@@ -185,7 +185,7 @@ PCAP or CICIDS dataset file. `tests/test_reference_parity.py` additionally
 depends on the committed Java-reference evidence artifact (not on a JDK at test
 time).
 
-## 7. Real-Capture Validation
+## 8. Real-Capture Validation
 
 `src/pcap_reader.py` ingests saved classic libpcap (microsecond/nanosecond,
 big/little endian) and PCAPNG captures via Scapy, and `scripts/validate_pcap.py`
@@ -197,7 +197,12 @@ schema match, all `BENIGN` (90.11%–98.19% confidence). Both
 `reports/pcap_validation_report.json` and `reports/pcap_validation_report.md`
 are generated from the same result object.
 
-## 8. Reference Verification (Runtime, Java)
+> **Scope note:** `http.cap` is a *public Wireshark sample*, not the requested
+> saved WLAN capture. The requested WLAN validation is **BLOCKED** until that
+> capture is supplied; no WLAN report has been generated. See
+> `REQUIREMENTS_COMPLIANCE.md` §7.
+
+## 9. Reference Verification (Runtime, Java)
 
 Active/Idle and bulk-transfer semantics were validated **numerically at
 runtime** against the pinned upstream Java CICFlowMeter sources
@@ -249,7 +254,7 @@ recorded output.
   CSV semantics); and our bulk averages use floating-point division where the
   reference truncates via integer division.
 
-## 9. Known Limitations
+## 10. Known Limitations
 
 - Live-interface sniffing is **not** implemented; only saved capture files are
   read.

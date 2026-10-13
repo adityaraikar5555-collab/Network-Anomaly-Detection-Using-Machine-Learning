@@ -57,6 +57,7 @@ WebSocket
       │
       ▼
 Chrome Security Dashboard
+```
 
 
 ## Saved PCAP/PCAPNG Validation Setup
